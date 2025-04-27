@@ -73,7 +73,7 @@ services:
     - **示例 (Windows)**：`cd C:\Users\<用户名>\hajimi-app`
 3. 启动服务：执行以下命令以后台模式启动服务。
 ```
-docker-compose up -d
+docker compose up -d
 ```
 Docker 会自动拉取镜像并根据 docker-compose.yaml 和 .env 文件启动容器。
 
@@ -105,7 +105,7 @@ cat .env  # 检查配置文件内容
 ```
 5. 启动服务：在 SSH 终端中，确保您位于项目目录下，执行启动命令。
 ```
-docker-compose up -d
+docker compose up -d
 ```
 
 ### （三）NAS 部署 (通过 Docker Compose UI)
@@ -135,7 +135,7 @@ docker-compose up -d
     - **Windows**：在命令提示符或 PowerShell 运行 `netstat -ano | findstr "7860"`
 - **解决方案**：
     - 停止占用该端口的程序。
-    - 或者，修改 docker-compose.yaml 文件中的 ports 部分，将冒号左侧的 7860 改为其他未被占用的端口（如 17860），例如：`ports: - "17860:7860"`。保存后需要重新启动服务 (`docker-compose down` 然后 `docker-compose up -d`)。
+    - 或者，修改 docker-compose.yaml 文件中的 ports 部分，将冒号左侧的 7860 改为其他未被占用的端口（如 17860），例如：`ports: - "17860:7860"`。保存后需要重新启动服务 (`docker compose down` 然后 `docker compose up -d`)。
 
 ### （二）Q2: 应用无法连接外部服务 (如 Google API)
 - **原因**：部署环境的网络无法直接访问所需服务，通常需要设置网络代理。
@@ -164,25 +164,25 @@ cd /path/to/your/hajimi-app
 ```
 2. 拉取最新镜像：
 ```
-docker-compose pull
+docker compose pull
 ```
 这将只拉取 docker-compose.yaml 文件中定义的服务的新镜像版本（如果存在）。
 3. 停止并重新创建容器：
 ```
 # 停止当前运行的容器
-docker-compose down
+docker compose down
 # 使用新镜像重新创建并启动容器
-docker-compose up -d
+docker compose up -d
 ```
 或者，更简洁的方式是直接执行 `docker-compose up -d`，Compose 会自动检测到镜像已更新并重新创建容器。
 
 4. **可选的强制清理命令（仅在遇到问题时使用）**：
 ```
 # 停止并删除容器、网络，并删除旧镜像
-# docker-compose down --rmi all
+# docker compose down --rmi all
 # 然后重新拉取并启动
-# docker-compose pull
-# docker-compose up -d
+# docker compose pull
+# docker compose up -d
 ```
 
 **建议**：首次部署时，尽量使用默认配置（除了必要的 API 密钥和密码），确保服务能正常运行。稳定运行后，再根据需要调整端口、代理或其他高级配置。 
