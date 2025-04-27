@@ -73,7 +73,7 @@ services:
     - **示例 (Windows)**：`cd C:\Users\<用户名>\hajimi-app`
 3. 启动服务：执行以下命令以后台模式启动服务。
 ```
-docker-compose up -d
+docker compose up -d
 ```
 Docker 会自动拉取镜像并根据 docker-compose.yaml 和 .env 文件启动容器。
 
@@ -105,7 +105,7 @@ cat .env  # 检查配置文件内容
 ```
 5. 启动服务：在 SSH 终端中，确保您位于项目目录下，执行启动命令。
 ```
-docker-compose up -d
+docker compose up -d
 ```
 
 ### （三）NAS 部署 (通过 Docker Compose UI)
