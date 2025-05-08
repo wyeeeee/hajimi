@@ -9,7 +9,7 @@ import app.config.settings as settings
 import random
 from typing import Literal
 from app.utils.response import openAI_from_Gemini, openAI_from_text
-from app.utils.stats import get_api_key_usage
+from app.utils.stats import get_api_key_usage, api_stats_manager
 
 
 # 非流式请求处理函数
@@ -50,8 +50,14 @@ async def process_nonstream_request(
         
         # 缓存响应结果
         await response_cache_manager.store(cache_key, response_content)
-        # 更新 API 调用统计
-        await update_api_call_stats(settings.api_call_stats, endpoint=current_api_key, model=chat_request.model,token=response_content.total_token_count)
+        
+        # 更新 API 调用统计（只使用新版本）
+        try:
+            tokens = response_content.total_token_count or 0
+            await api_stats_manager.update_stats(current_api_key, chat_request.model, tokens)
+        except Exception as stats_error:
+            log('error', f"更新API调用统计失败: {str(stats_error)}",
+                extra={'key': current_api_key[:8], 'model': chat_request.model})
         
         return "success"
 

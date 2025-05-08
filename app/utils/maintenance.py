@@ -74,20 +74,20 @@ def schedule_cache_cleanup(response_cache_manager, active_requests_manager):
 
 async def api_call_stats_clean():
     """
-    每天定时重置API调用统计数据
+    每天定时重置API调用统计数据，但保留每日统计数据
     
-    使用新的统计系统重置
+    使用新的统计系统重置，只清除24小时内的临时统计，保留每日累计统计
     """
     from app.utils.logging import log
     
     try:
         # 记录重置前的状态
-        log('info', "开始重置API调用统计数据")
+        log('info', "开始重置API调用统计数据（保留每日统计数据）")
         
         # 使用新的统计系统重置
         await api_stats_manager.reset()
         
-        log('info', "API调用统计数据已成功重置")
+        log('info', "API调用统计数据已成功重置（保留每日统计数据）")
         persistence.save_settings()
             
     except Exception as e:

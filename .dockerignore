@@ -1,0 +1,26 @@
+# 排除前端开发文件
+hajimiUI/node_modules
+hajimiUI/.vscode
+hajimiUI/dist
+
+# 排除数据文件和缓存
+data/*
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.coverage
+
+# 排除敏感信息
+.env
+env/
+.venv
+venv/
+ENV/
+
+# 排除非必要文件
+*.log
+*.swp
+*.DS_Store 

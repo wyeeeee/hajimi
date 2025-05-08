@@ -4,7 +4,7 @@ from app.models import ChatCompletionRequest
 from app.services import GeminiClient
 from app.utils import handle_gemini_error, update_api_call_stats,log,openAI_from_text
 from app.utils.response import openAI_from_Gemini
-from app.utils.stats import get_api_key_usage
+from app.utils.stats import get_api_key_usage, api_stats_manager
 import app.config.settings as settings
 
 async def stream_response_generator(
@@ -195,12 +195,12 @@ async def stream_response_generator(
                         extra={'key': api_key[:8], 'request_type': 'stream', 'model': chat_request.model})
                     # 增加空响应计数
                     empty_response_count += 1
-                    await update_api_call_stats(
-                        settings.api_call_stats, 
-                        endpoint=api_key, 
-                        model=chat_request.model,
-                        token=token
-                    )
+                    # 使用新版API统计更新
+                    try:
+                        await api_stats_manager.update_stats(api_key, chat_request.model, token)
+                    except Exception as stats_error:
+                        log('error', f"更新API调用统计失败: {str(stats_error)}",
+                            extra={'key': api_key[:8], 'model': chat_request.model})
                     break
         
         except Exception as e:
@@ -211,12 +211,13 @@ async def stream_response_generator(
         finally: 
             # 如果成功获取相应，更新API调用统计
             if success:
-                await update_api_call_stats(
-                    settings.api_call_stats, 
-                    endpoint=api_key, 
-                    model=chat_request.model,
-                    token=token
-                )
+                # 只使用新版统计系统
+                try:
+                    await api_stats_manager.update_stats(api_key, chat_request.model, token)
+                except Exception as stats_error:
+                    log('error', f"更新API调用统计失败: {str(stats_error)}",
+                        extra={'key': api_key[:8], 'model': chat_request.model})
+                
                 return
             
             # 如果空响应次数达到限制，跳出循环
@@ -248,26 +249,32 @@ async def handle_fake_streaming(api_key,chat_request, contents, response_cache_m
             system_instruction
         )
     )
-    gemini_task = asyncio.shield(gemini_task)
     
-    try:
-        # 获取响应内容
-        response_content = await gemini_task
-        response_content.set_model(chat_request.model)
-        log('info', f"假流式成功获取响应，进行缓存",
-            extra={'key': api_key[:8], 'request_type': 'fake-stream', 'model': chat_request.model})
+    # 使用 shield 保护任务不被外部轻易取消
+    shielded_gemini_task = asyncio.shield(gemini_task)
 
-        # 更新API调用统计
-        await update_api_call_stats(settings.api_call_stats, endpoint=api_key, model=chat_request.model,token=response_content.total_token_count) 
-                    
+    try:
+        # 等待受保护的 API 调用任务完成
+        response_content = await shielded_gemini_task
+        response_content.set_model(chat_request.model)
+        
         # 检查响应内容是否为空
         if not response_content or not response_content.text:
-            log('warning', f"请求返回空响应",
-                extra={'key': api_key[:8], 'request_type': 'fake-stream', 'model': chat_request.model})        
+            log('warning', f"API密钥 {api_key[:8]}... 返回空响应",
+                extra={'key': api_key[:8], 'request_type': 'fake-stream', 'model': chat_request.model})
             return "empty"
-
-        # 缓存
+        
+        # 缓存响应结果
         await response_cache_manager.store(cache_key, response_content)
+        
+        # 只使用新版API统计更新
+        try:
+            tokens = response_content.total_token_count or 0
+            await api_stats_manager.update_stats(api_key, chat_request.model, tokens)
+        except Exception as stats_error:
+            log('error', f"更新API调用统计失败: {str(stats_error)}",
+                extra={'key': api_key[:8], 'model': chat_request.model})
+            
         return "success"
     
     except Exception as e:

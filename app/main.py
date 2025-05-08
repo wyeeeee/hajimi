@@ -27,6 +27,10 @@ import os
 BASE_DIR = pathlib.Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+# 创建数据目录
+DATA_DIR = pathlib.Path(BASE_DIR.parent, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
 app = FastAPI(limit="50M")
 
 # --------------- 全局实例 ---------------

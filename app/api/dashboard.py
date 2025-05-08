@@ -17,6 +17,9 @@ from app.utils.maintenance import api_call_stats_clean
 from app.utils.logging import log, vertex_log_manager
 from app.config.persistence import save_settings
 from app.utils.stats import api_stats_manager
+from typing import List
+import json
+
 # 创建路由器
 dashboard_router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -542,3 +545,144 @@ def start_api_key_test_in_thread(keys):
             "is_running": False,
             "is_completed": True
         })
+
+# 重新添加获取每日统计数据的API端点
+@dashboard_router.get("/daily-stats")
+async def get_daily_stats():
+    """获取每日调用统计数据的API端点"""
+    try:
+        # 触发一次保存以确保数据持久化
+        api_stats_manager._save_daily_stats()
+        
+        # 获取持久化的每日统计数据
+        daily_stats = api_stats_manager.get_daily_stats(15)
+        
+        # 获取当前内存中的数据并合并
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_memory_stats = None
+        
+        # 使用锁安全地访问内存数据
+        with api_stats_manager._daily_stats_lock:
+            if today in api_stats_manager.daily_stats:
+                today_memory_stats = api_stats_manager.daily_stats[today].copy()
+        
+        # 合并内存中的数据到结果中
+        if today_memory_stats:
+            # 查找结果中是否已有今天的数据
+            today_index = next((i for i, stat in enumerate(daily_stats) if stat["date"] == today), None)
+            
+            if today_index is not None:
+                # 合并数据
+                daily_stats[today_index]["calls"] += today_memory_stats["calls"]
+                daily_stats[today_index]["tokens"] += today_memory_stats["tokens"]
+            else:
+                # 添加今天的数据
+                daily_stats.insert(0, {
+                    "date": today,
+                    "calls": today_memory_stats["calls"],
+                    "tokens": today_memory_stats["tokens"]
+                })
+        
+        # 记录获取的数据，便于调试
+        if daily_stats:
+            total_calls = sum(stat["calls"] for stat in daily_stats)
+            total_tokens = sum(stat["tokens"] for stat in daily_stats)
+            log('info', f"获取每日统计数据: {len(daily_stats)}天, 总调用: {total_calls}, 总Token: {total_tokens}")
+        else:
+            log('warning', "获取每日统计数据: 未找到任何统计数据")
+        
+        return {
+            "daily_stats": daily_stats
+        }
+    except Exception as e:
+        log('error', f"获取每日统计数据时出错: {str(e)}")
+        # 即使出错也返回空数组而不是抛出异常，确保前端不会崩溃
+        return {
+            "daily_stats": [],
+            "error": str(e)
+        }
+
+@dashboard_router.post("/daily-stats/import")
+async def import_daily_stats(data: List[dict]):
+    """
+    导入每日统计数据的API端点
+    
+    Args:
+        data: 包含要导入的每日统计数据的列表，每个元素应包含date, calls, tokens字段
+        
+    Returns:
+        dict: 导入结果
+    """
+    try:
+        if not isinstance(data, list):
+            raise HTTPException(status_code=422, detail="请求体格式错误：应为JSON数组")
+        
+        if len(data) == 0:
+            raise HTTPException(status_code=400, detail="导入数据为空")
+        
+        # 验证数据格式
+        for item in data:
+            if not isinstance(item, dict):
+                raise HTTPException(status_code=422, detail="数据项必须是对象")
+            
+            if "date" not in item:
+                raise HTTPException(status_code=400, detail="数据项缺少date字段")
+            
+            if "calls" not in item:
+                raise HTTPException(status_code=400, detail="数据项缺少calls字段")
+            
+            if "tokens" not in item:
+                raise HTTPException(status_code=400, detail="数据项缺少tokens字段")
+            
+            # 验证日期格式
+            try:
+                datetime.strptime(item["date"], "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"日期格式错误: {item['date']}，应为YYYY-MM-DD格式")
+        
+        # 处理导入数据
+        imported_count = 0
+        
+        # 先保存当前内存中的数据
+        api_stats_manager._save_daily_stats()
+        
+        # 加锁更新永久存储数据
+        with api_stats_manager._daily_stats_lock:
+            # 更新永久存储的每日统计数据
+            for item in data:
+                date = item["date"]
+                calls = int(item["calls"])
+                tokens = int(item["tokens"])
+                
+                # 更新数据（如果已存在相同日期的数据，则合并）
+                if date in api_stats_manager.permanent_daily_stats:
+                    api_stats_manager.permanent_daily_stats[date]["calls"] += calls
+                    api_stats_manager.permanent_daily_stats[date]["tokens"] += tokens
+                else:
+                    api_stats_manager.permanent_daily_stats[date] = {
+                        "calls": calls,
+                        "tokens": tokens
+                    }
+                
+                imported_count += 1
+            
+            # 保存更新后的数据到文件
+            try:
+                with open(api_stats_manager._daily_stats_file, 'w', encoding='utf-8') as f:
+                    json.dump(api_stats_manager.permanent_daily_stats, f, ensure_ascii=False, indent=2)
+                
+                log('info', f"导入的每日统计数据已保存: {imported_count}条记录")
+            except Exception as save_error:
+                log('error', f"保存导入的每日统计数据失败: {str(save_error)}")
+                raise HTTPException(status_code=500, detail=f"保存导入数据失败: {str(save_error)}")
+        
+        return {
+            "status": "success",
+            "message": f"成功导入{imported_count}条统计记录",
+            "imported_count": imported_count
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log('error', f"导入每日统计数据时出错: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"导入数据失败: {str(e)}")

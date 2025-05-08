@@ -3,6 +3,7 @@
   import { ref } from 'vue'
   import StatusStats from './status/StatusStats.vue'
   import ApiKeyStats from './status/ApiKeyStats.vue'
+  import DailyStatsChart from './status/DailyStatsChart.vue'
   
   const dashboardStore = useDashboardStore()
   
@@ -99,6 +100,9 @@
       
       <!-- 引入运行状态统计组件 -->
       <StatusStats />
+      
+      <!-- 引入每日统计图表组件 -->
+      <DailyStatsChart />
       
       <!-- 引入API密钥统计组件 -->
       <ApiKeyStats />
