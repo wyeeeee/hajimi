@@ -17,8 +17,7 @@ EXCLUDED_SETTINGS = [
     "DEFAULT_BLOCKED_MODELS", 
     "PUBLIC_MODE", 
     "DASHBOARD_URL",
-    "version",
-    "GOOGLE_CREDENTIALS_JSON"
+    "version"
 ]
 
 def save_settings():

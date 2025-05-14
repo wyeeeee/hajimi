@@ -8,8 +8,7 @@ const dashboardStore = useDashboardStore()
 const localConfig = reactive({
   fakeStreaming: dashboardStore.config.fakeStreaming,
   enableVertexExpress: dashboardStore.config.enableVertexExpress,
-  vertexExpressApiKey: dashboardStore.config.vertexExpressApiKey || '',
-  googleCredentialsJson: dashboardStore.config.googleCredentialsJson || ''
+  vertexExpressApiKey: dashboardStore.config.vertexExpressApiKey || ''
 })
 
 // 密码和错误信息
@@ -30,19 +29,6 @@ async function saveAllConfigs() {
   successMsg.value = ''
 
   try {
-    // 处理JSON格式
-    if (localConfig.googleCredentialsJson) {
-      try {
-        // 尝试解析 JSON 并压缩
-        const jsonObj = JSON.parse(localConfig.googleCredentialsJson)
-        localConfig.googleCredentialsJson = JSON.stringify(jsonObj)
-      } catch (e) {
-        errorMsg.value = '请输入有效的 JSON 格式'
-        isSaving.value = false
-        return
-      }
-    }
-    
     // 逐个保存配置项
     const configKeys = Object.keys(localConfig)
     for (const key of configKeys) {
@@ -105,19 +91,6 @@ function getBooleanText(value) {
             v-model="localConfig.vertexExpressApiKey" 
             placeholder="请输入 Vertex Express API密钥"
           >
-        </div>
-      </div>
-      
-      <!-- Google Credentials JSON 配置项 -->
-      <div class="config-row">
-        <div class="config-group full-width">
-          <label class="config-label">Google Credentials JSON</label>
-          <textarea 
-            class="config-input text-area" 
-            v-model="localConfig.googleCredentialsJson" 
-            placeholder="请输入 Google Credentials JSON"
-            rows="6"
-          ></textarea>
         </div>
       </div>
       

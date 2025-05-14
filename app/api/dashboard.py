@@ -17,6 +17,15 @@ from app.utils.maintenance import api_call_stats_clean
 from app.utils.logging import log, vertex_log_manager
 from app.config.persistence import save_settings
 from app.utils.stats import api_stats_manager
+from typing import List
+import json
+
+# Import necessary components for Google Credentials JSON update
+from app.vertex.vertex import credential_manager as global_credential_manager, \
+    parse_multiple_json_credentials, \
+    init_vertex_ai as re_init_vertex_ai_function, \
+    reset_global_fallback_client
+
 # 创建路由器
 dashboard_router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -46,6 +55,18 @@ def init_dashboard_router(
     response_cache_manager = cache_mgr
     active_requests_manager = active_req_mgr
     return dashboard_router
+
+async def run_blocking_init_vertex():
+    """Helper to run the blocking init_vertex_ai function in an executor."""
+    loop = asyncio.get_event_loop()
+    try:
+        success = await loop.run_in_executor(None, re_init_vertex_ai_function)
+        if success:
+            log('info', "异步重新执行 init_vertex_ai 成功，以响应 Google Credentials JSON 的更新。")
+        else:
+            log('warning', "异步重新执行 init_vertex_ai 失败或未完成，在 Google Credentials JSON 更新后。")
+    except Exception as e:
+        log('error', f"执行 run_blocking_init_vertex 时出错: {e}")
 
 @dashboard_router.get("/dashboard-data")
 async def get_dashboard_data():
@@ -325,6 +346,70 @@ async def update_config(config_data: dict):
                 raise HTTPException(status_code=422, detail="参数类型错误：应为布尔值")
             settings.ENABLE_VERTEX = config_value
             log('info', f"Vertex AI 已更新为：{config_value}")
+
+        elif config_key == "google_credentials_json":
+            if not isinstance(config_value, str): # Allow empty string to clear
+                raise HTTPException(status_code=422, detail="参数类型错误：Google Credentials JSON 应为字符串")
+
+            # Validate JSON structure if not empty
+            if config_value:
+                try:
+                    # Attempt to parse as single or multiple JSONs
+                    # parse_multiple_json_credentials logs errors if parsing fails but returns list.
+                    temp_parsed = parse_multiple_json_credentials(config_value)
+                    # If parse_multiple_json_credentials returns an empty list for a non-empty string,
+                    # it means it didn't find any valid top-level JSON objects as per its logic.
+                    # We can do an additional check for a single valid JSON object.
+                    if not temp_parsed: # and config_value.strip(): # ensure non-empty string before json.loads
+                        try:
+                            # This is a stricter check. If parse_multiple_json_credentials, which is more lenient,
+                            # failed to find anything, and this also fails, then it's likely malformed.
+                            json.loads(config_value) # Try parsing as a single JSON object
+                            # If this succeeds, it implies the string IS a valid single JSON,
+                            # but not in the multi-JSON format parse_multiple_json_credentials might be looking for initially.
+                            # parse_multiple_json_credentials will be called again later and should handle it.
+                        except json.JSONDecodeError:
+                            # This specific error means it's not even a valid single JSON.
+                            raise HTTPException(status_code=422, detail="Google Credentials JSON 格式无效。它既不是有效的单个JSON对象，也不是逗号分隔的多个JSON对象。")
+                except HTTPException: # Re-raise if it's already an HTTPException from inner check
+                    raise
+                except Exception as e: # Catch any other error during this pre-check
+                    # This might catch errors if parse_multiple_json_credentials itself had an unexpected issue
+                    # not related to JSONDecodeError but still an error.
+                    raise HTTPException(status_code=422, detail=f"Google Credentials JSON 预检查失败: {str(e)}")
+
+            settings.GOOGLE_CREDENTIALS_JSON = config_value
+            log('info', "Google Credentials JSON 设置已更新 (内容未记录)。")
+
+            # Reset global fallback client first
+            reset_global_fallback_client()
+
+            # Clear previously loaded JSON string credentials from manager
+            cleared_count = global_credential_manager.clear_json_string_credentials()
+            log('info', f"从 CredentialManager 中清除了 {cleared_count} 个先前由 JSON 字符串加载的凭据。")
+
+            if config_value: # If new JSON string is provided
+                parsed_json_objects = parse_multiple_json_credentials(config_value)
+                if parsed_json_objects:
+                    loaded_count = global_credential_manager.load_credentials_from_json_list(parsed_json_objects)
+                    log('info', f"从更新的 Google Credentials JSON 中加载了 {loaded_count} 个凭据到 CredentialManager。")
+                else:
+                    # This log implies that parse_multiple_json_credentials returned empty for a non-empty string.
+                    # The earlier validation (json.loads) would have caught if it wasn't even a single valid JSON.
+                    # So this means it might be a single valid JSON but not fitting the "multiple" parser's expectation,
+                    # or it was truly empty/invalid and the pre-check logic needs review if that's unexpected here.
+                    # However, load_credentials_from_json_list expects a list of dicts, so if parsed_json_objects is empty,
+                    # it correctly loads zero.
+                    log('info', "更新的 Google Credentials JSON 解析后未产生可加载的多对象列表，或者内容本身无法解析为有效凭据结构，未加载任何新凭据到 CredentialManager。")
+            else:
+                log('info', "Google Credentials JSON 已被清空。CredentialManager 中来自 JSON 字符串的凭据已被移除。")
+            
+            # Save all settings changes
+            save_settings() # Moved save_settings here to ensure it's called for this key
+
+            # Trigger re-initialization of Vertex AI (which can re-init the global client)
+            asyncio.create_task(run_blocking_init_vertex())
+            log('info', "已安排 Vertex AI 服务重新初始化以应用 Google Credentials JSON 更改。")
         
         elif config_key == "max_retry_num":
             try:

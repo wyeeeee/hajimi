@@ -127,7 +127,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
       enableVertex: data.enable_vertex || false,
       enableVertexExpress: data.enable_vertex_express || false,
       vertexExpressApiKey: data.vertex_express_api_key || false,
-      googleCredentialsJson: data.google_credentials_json || false,
       maxRetryNum: data.max_retry_num || 0,
       maxEmptyResponses: data.max_empty_responses || 0
     }
