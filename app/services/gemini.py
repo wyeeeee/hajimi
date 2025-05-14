@@ -1,7 +1,7 @@
 import json
 import os
-import httpx # 添加 httpx 导入
-from app.models import ChatCompletionRequest
+import httpx 
+from app.models.schemas import ChatCompletionRequest
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 import httpx
@@ -48,7 +48,7 @@ class GeminiResponseWrapper:
         try:
             text=""
             for part in self._data['candidates'][0]['content']['parts']:
-                if 'thought' not in part:
+                if 'thought' not in part and 'text' in part:
                     text += part['text']
             return text
         except (KeyError, IndexError):
@@ -96,6 +96,10 @@ class GeminiResponseWrapper:
         self._model = model
 
     @property
+    def data(self) -> Dict[Any, Any]:
+        return self._data
+
+    @property
     def text(self) -> str:
         return self._text
 
@@ -141,7 +145,39 @@ class GeminiClient:
         self.api_key = api_key
 
     # 请求参数处理
-    def _prepare_request_data(self, request: ChatCompletionRequest, contents, safety_settings, system_instruction, model):
+    def _convert_request_data(self, request, contents, safety_settings, system_instruction):
+
+        model = request.model
+        format_type = getattr(request, 'format_type', None)
+        if format_type and (format_type == "gemini"):
+            api_version = "v1alpha" if "think" in request.model else "v1beta"
+            if request.payload:
+                # 将 Pydantic 模型转换为字典, 假设 Pydantic V2+
+                data = request.payload.model_dump(exclude_none=True)
+            # # 注入搜索提示
+            # if settings.search["search_mode"] and request.model and request.model.endswith("-search"):
+            #     data.insert(len(data)-2,{'role': 'user', 'parts': [{'text':settings.search["search_prompt"]}]})
+            
+            # # 注入随机字符串
+            # if settings.RANDOM_STRING:
+            #     data.insert(1,{'role': 'user', 'parts': [{'text': generate_secure_random_string(settings.RANDOM_STRING_LENGTH)}]})
+            #     data.insert(len(data)-1,{'role': 'user', 'parts': [{'text': generate_secure_random_string(settings.RANDOM_STRING_LENGTH)}]})
+            #     log('INFO', "伪装消息成功")
+            
+        else:
+            api_version, data = self._convert_openAI_request(request, contents, safety_settings, system_instruction)
+
+        # 联网模式
+        if settings.search["search_mode"] and request.model.endswith("-search"):
+            log('INFO', "开启联网搜索模式", extra={'key': self.api_key[:8], 'model':request.model})
+            
+            data.setdefault("tools", []).append({"google_search": {}})
+            model= request.model.removesuffix("-search")
+        
+        return api_version, model, data
+
+    
+    def _convert_openAI_request(self, request: ChatCompletionRequest, contents, safety_settings, system_instruction):
         
         config_params = {
             "temperature": request.temperature,
@@ -223,28 +259,22 @@ class GeminiClient:
         # 3. 添加 tool_config 到 data
         if tool_config:
             data["tool_config"] = tool_config
-        
-        # 联网模式
-        if settings.search["search_mode"] and model.endswith("-search"):
-            log('INFO', "开启联网搜索模式", extra={'key': self.api_key[:8], 'model':request.model})
-            
-            data.setdefault("tools", []).append({"google_search": {}})
-        
+
         if system_instruction:
-            data["system_instruction"] = system_instruction
+            data["system_instruction"] = system_instruction    
         
         return api_version, data
     
 
     # 流式请求
-    async def stream_chat(self, request: ChatCompletionRequest, contents, safety_settings, system_instruction):
+    async def stream_chat(self, request, contents, safety_settings, system_instruction):
         # 真流式请求处理逻辑
         extra_log = {'key': self.api_key[:8], 'request_type': 'stream', 'model': request.model}
         log('INFO', "流式请求开始", extra=extra_log)
         
-        api_version, data = self._prepare_request_data(request, contents, safety_settings, system_instruction,request.model)
+        api_version, model, data = self._convert_request_data(request, contents, safety_settings, system_instruction)
         
-        model= request.model.removesuffix("-search")
+        
         url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:streamGenerateContent?key={self.api_key}&alt=sse"
         headers = {
             "Content-Type": "application/json",
@@ -252,6 +282,7 @@ class GeminiClient:
         
         async with httpx.AsyncClient() as client:
             async with client.stream("POST", url, headers=headers, json=data, timeout=600) as response:
+                response.raise_for_status()
                 buffer = b"" # 用于累积可能不完整的 JSON 数据
                 try:
                     async for line in response.aiter_lines():
@@ -270,7 +301,6 @@ class GeminiClient:
                             data = json.loads(buffer.decode('utf-8'))
                             # 解析成功，清空缓冲区
                             buffer = b"" 
-                            
                             yield GeminiResponseWrapper(data)
 
                         except json.JSONDecodeError:
@@ -286,10 +316,10 @@ class GeminiClient:
                     log('info', "流式请求结束")
 
     # 非流式处理
-    async def complete_chat(self, request: ChatCompletionRequest, contents, safety_settings, system_instruction):
+    async def complete_chat(self, request, contents, safety_settings, system_instruction):
+
+        api_version, model, data = self._convert_request_data(request, contents, safety_settings, system_instruction)
         
-        api_version, data = self._prepare_request_data(request, contents, safety_settings, system_instruction,request.model)
-        model= request.model.removesuffix("-search")
         url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:generateContent?key={self.api_key}"
         headers = {
             "Content-Type": "application/json",
@@ -317,8 +347,8 @@ class GeminiClient:
             # 遍历消息列表，查找开头的连续 system 消息
             for i, message in enumerate(messages):
                 # 必须是 system 角色且内容是字符串
-                if message.role == 'system' and isinstance(message.content, str):
-                    system_instruction_parts.append(message.content)
+                if message.get('role') == 'system' and isinstance(message.get('content'), str):
+                    system_instruction_parts.append(message.get('content'))
                 else:
                     break # 遇到第一个非 system 或内容非字符串的消息就停止
         
@@ -329,13 +359,13 @@ class GeminiClient:
         # 转换主要消息
         
         for i, message in enumerate(messages):
-            role = message.role
-            content = message.content
+            role = message.get('role')
+            content = message.get('content')
             if isinstance(content, str):
 
                 if role == 'tool':
                     role_to_use = 'function'
-                    tool_call_id = message.tool_call_id
+                    tool_call_id = message.get('tool_call_id')
 
                     prefix = "call_"
                     if tool_call_id.startswith(prefix):

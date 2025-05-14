@@ -1,125 +1,244 @@
 <script setup>
 import { useDashboardStore } from '../../../stores/dashboard'
+import { ref, reactive, watch } from 'vue'
 
 const dashboardStore = useDashboardStore()
 
-// 传递编辑函数和显示值函数
-const props = defineProps({
-  openEditDialog: {
-    type: Function,
-    required: true
+// Initialize localConfig with default structure
+const localConfig = reactive({
+  searchMode: false,
+  searchPrompt: '',
+  maxRetryNum: 0,
+  fakeStreaming: false,
+  fakeStreamingInterval: 0,
+  randomString: false,
+  randomStringLength: 0,
+  concurrentRequests: 1, // Default to 1 or a sensible minimum
+  increaseConcurrentOnFailure: 0,
+  maxConcurrentRequests: 1, // Default to 1 or a sensible minimum
+  maxEmptyResponses: 0
+})
+
+const populatedFromStore = ref(false);
+
+// Watch for store changes to populate localConfig ONCE when config is loaded
+watch(
+  () => ({
+    storeSearchMode: dashboardStore.config.searchMode,
+    storeSearchPrompt: dashboardStore.config.searchPrompt,
+    storeMaxRetryNum: dashboardStore.config.maxRetryNum,
+    storeFakeStreaming: dashboardStore.config.fakeStreaming,
+    storeFakeStreamingInterval: dashboardStore.config.fakeStreamingInterval,
+    storeRandomString: dashboardStore.config.randomString,
+    storeRandomStringLength: dashboardStore.config.randomStringLength,
+    storeConcurrentRequests: dashboardStore.config.concurrentRequests,
+    storeIncreaseConcurrentOnFailure: dashboardStore.config.increaseConcurrentOnFailure,
+    storeMaxConcurrentRequests: dashboardStore.config.maxConcurrentRequests,
+    storeMaxEmptyResponses: dashboardStore.config.maxEmptyResponses,
+    configIsActuallyLoaded: dashboardStore.isConfigLoaded, // 观察加载状态
+  }),
+  (newValues) => {
+    if (newValues.configIsActuallyLoaded && !populatedFromStore.value) {
+      localConfig.searchMode = newValues.storeSearchMode;
+      localConfig.searchPrompt = newValues.storeSearchPrompt;
+      localConfig.maxRetryNum = newValues.storeMaxRetryNum;
+      localConfig.fakeStreaming = newValues.storeFakeStreaming;
+      localConfig.fakeStreamingInterval = newValues.storeFakeStreamingInterval;
+      localConfig.randomString = newValues.storeRandomString;
+      localConfig.randomStringLength = newValues.storeRandomStringLength;
+      localConfig.concurrentRequests = newValues.storeConcurrentRequests;
+      localConfig.increaseConcurrentOnFailure = newValues.storeIncreaseConcurrentOnFailure;
+      localConfig.maxConcurrentRequests = newValues.storeMaxConcurrentRequests;
+      localConfig.maxEmptyResponses = newValues.storeMaxEmptyResponses;
+      populatedFromStore.value = true;
+    }
   },
-  getConfigDisplayValue: {
-    type: Function,
-    required: true
+  { deep: true, immediate: true }
+)
+
+// 保存组件配置
+async function saveComponentConfigs(passwordFromParent) {
+  if (!passwordFromParent) {
+    return { success: false, message: '功能配置: 密码未提供' }
   }
+
+  let allSucceeded = true;
+  let individualMessages = [];
+
+  // 逐个保存配置项
+  const configKeys = Object.keys(localConfig);
+  for (const key of configKeys) {
+    if (localConfig[key] !== dashboardStore.config[key]) {
+      try {
+        await dashboardStore.updateConfig(key, localConfig[key], passwordFromParent);
+        // 更新store中的值 - 仅在API调用成功后
+        dashboardStore.config[key] = localConfig[key];
+        individualMessages.push(`${key} 保存成功`);
+      } catch (error) {
+        allSucceeded = false;
+        individualMessages.push(`${key} 保存失败: ${error.message || '未知错误'}`);
+      }
+    }
+  }
+
+  if (allSucceeded && individualMessages.length === 0) {
+    // 如果没有任何更改，也算成功，但提示用户
+    return { success: true, message: '功能配置: 无更改需要保存' };
+  }
+
+  return {
+    success: allSucceeded,
+    message: `功能配置: ${individualMessages.join('; ')}`
+  };
+}
+
+// 获取布尔值显示文本
+function getBooleanText(value) {
+  return value ? '启用' : '禁用'
+}
+
+defineExpose({
+  saveComponentConfigs,
+  localConfig
 })
 </script>
 
 <template>
-  <div>
+  <div class="features-config">
     <h3 class="section-title">功能配置</h3>
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-value">{{ props.getConfigDisplayValue('searchMode') }}</div>
-        <div class="stat-label">联网搜索</div>
-        <button class="edit-btn" @click="props.openEditDialog('searchMode', dashboardStore.config.searchMode)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
+    
+    <div class="config-form">
+      <!-- 布尔值配置项 -->
+      <div class="config-row">
+        <div class="config-group">
+          <label class="config-label">联网搜索</label>
+          <div class="toggle-wrapper">
+            <input type="checkbox" class="toggle" id="searchMode" v-model="localConfig.searchMode">
+            <label for="searchMode" class="toggle-label">
+              <span class="toggle-text">{{ getBooleanText(localConfig.searchMode) }}</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="config-group">
+          <label class="config-label">假流式响应</label>
+          <div class="toggle-wrapper">
+            <input type="checkbox" class="toggle" id="fakeStreaming" v-model="localConfig.fakeStreaming">
+            <label for="fakeStreaming" class="toggle-label">
+              <span class="toggle-text">{{ getBooleanText(localConfig.fakeStreaming) }}</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="config-group">
+          <label class="config-label">伪装信息</label>
+          <div class="toggle-wrapper">
+            <input type="checkbox" class="toggle" id="randomString" v-model="localConfig.randomString">
+            <label for="randomString" class="toggle-label">
+              <span class="toggle-text">{{ getBooleanText(localConfig.randomString) }}</span>
+            </label>
+          </div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.searchPrompt ? (dashboardStore.config.searchPrompt.length > 10 ? dashboardStore.config.searchPrompt.substring(0, 10) + '...' : dashboardStore.config.searchPrompt) : '未设置' }}</div>
-        <div class="stat-label">联网搜索提示</div>
-        <button class="edit-btn" @click="props.openEditDialog('searchPrompt', dashboardStore.config.searchPrompt)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
+      
+      <!-- 字符串配置项 -->
+      <div class="config-row">
+        <div class="config-group full-width">
+          <label class="config-label">联网搜索提示</label>
+          <input 
+            type="text" 
+            class="config-input" 
+            v-model="localConfig.searchPrompt" 
+            placeholder="请输入联网搜索提示"
+          >
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.maxRetryNum }}</div>
-        <div class="stat-label">最大重试次数</div>
-        <button class="edit-btn" @click="props.openEditDialog('maxRetryNum', dashboardStore.config.maxRetryNum)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
+      
+      <!-- 数值配置项第一行 -->
+      <div class="config-row">
+        <div class="config-group">
+          <label class="config-label">最大重试次数</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.maxRetryNum" 
+            min="0"
+          >
+        </div>
+        
+        <div class="config-group">
+          <label class="config-label">假流式间隔(秒)</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.fakeStreamingInterval" 
+            min="0"
+            step="0.1"
+          >
+        </div>
+        
+        <div class="config-group">
+          <label class="config-label">伪装信息长度</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.randomStringLength" 
+            min="0"
+          >
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ props.getConfigDisplayValue('fakeStreaming') }}</div>
-        <div class="stat-label">假流式响应</div>
-        <button class="edit-btn" @click="props.openEditDialog('fakeStreaming', dashboardStore.config.fakeStreaming)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
+      
+      <!-- 数值配置项第二行 -->
+      <div class="config-row">
+        <div class="config-group">
+          <label class="config-label">默认并发请求数</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.concurrentRequests" 
+            min="1"
+          >
+        </div>
+        
+        <div class="config-group">
+          <label class="config-label">失败时增加并发数</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.increaseConcurrentOnFailure" 
+            min="0"
+          >
+        </div>
+        
+        <div class="config-group">
+          <label class="config-label">最大并发请求数</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.maxConcurrentRequests" 
+            min="1"
+          >
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.fakeStreamingInterval }}秒</div>
-        <div class="stat-label">假流式间隔</div>
-        <button class="edit-btn" @click="props.openEditDialog('fakeStreamingInterval', dashboardStore.config.fakeStreamingInterval)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
+      
+      <!-- 数值配置项第三行 -->
+      <div class="config-row">
+        <div class="config-group">
+          <label class="config-label">空响应重试限制</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.maxEmptyResponses" 
+            min="0"
+          >
+        </div>
+        <!-- 可以根据需要在此行添加更多配置项 -->
+        <div class="config-group"></div>
+        <div class="config-group"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ props.getConfigDisplayValue('randomString') }}</div>
-        <div class="stat-label">伪装信息</div>
-        <button class="edit-btn" @click="props.openEditDialog('randomString', dashboardStore.config.randomString)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.randomStringLength }}字符</div>
-        <div class="stat-label">伪装信息长度</div>
-        <button class="edit-btn" @click="props.openEditDialog('randomStringLength', dashboardStore.config.randomStringLength)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.concurrentRequests }}</div>
-        <div class="stat-label">默认并发请求数</div>
-        <button class="edit-btn" @click="props.openEditDialog('concurrentRequests', dashboardStore.config.concurrentRequests)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.increaseConcurrentOnFailure }}</div>
-        <div class="stat-label">失败时增加并发数</div>
-        <button class="edit-btn" @click="props.openEditDialog('increaseConcurrentOnFailure', dashboardStore.config.increaseConcurrentOnFailure)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.maxConcurrentRequests }}</div>
-        <div class="stat-label">最大并发请求数</div>
-        <button class="edit-btn" @click="props.openEditDialog('maxConcurrentRequests', dashboardStore.config.maxConcurrentRequests)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-      </div>
+
+      <!-- 移除独立的保存区域 -->
+      <!-- 消息提示由父组件处理 -->
     </div>
   </div>
 </template>
@@ -145,145 +264,138 @@ const props = defineProps({
   background: var(--gradient-primary);
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
-  margin-top: 15px;
-  margin-bottom: 20px;
+.features-config {
+  margin-bottom: 25px;
 }
 
-/* 移动端优化 - 保持三栏但减小间距 */
-@media (max-width: 768px) {
-  .stats-grid {
-    gap: 8px;
-  }
-}
-
-.stat-card {
+.config-form {
   background-color: var(--stats-item-bg);
-  padding: 10px 15px;
   border-radius: var(--radius-lg);
-  text-align: center;
+  padding: 20px;
   box-shadow: var(--shadow-sm);
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
   border: 1px solid var(--card-border);
 }
 
-.stat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
-  background: var(--gradient-secondary);
-  opacity: 0;
-  transition: opacity 0.3s ease;
+.config-row {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
 }
 
-.stat-card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-md);
-  border-color: var(--button-primary);
+.config-group {
+  flex: 1;
+  min-width: 120px;
 }
 
-.stat-card:hover::before {
-  opacity: 1;
+.full-width {
+  flex-basis: 100%;
 }
 
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: var(--button-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: all 0.3s ease;
-  margin-bottom: 5px;
-  position: relative;
-  display: inline-block;
-}
-
-.stat-label {
+.config-label {
+  display: block;
   font-size: 14px;
+  margin-bottom: 5px;
   color: var(--color-text);
-  margin-top: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: all 0.3s ease;
-  opacity: 0.8;
+  font-weight: 500;
 }
 
-.stat-card:hover .stat-label {
-  opacity: 1;
-  color: var(--color-heading);
-}
-
-/* 编辑按钮样式 */
-.edit-btn {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.3s ease;
-  padding: 4px;
+.config-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.config-input:focus {
+  outline: none;
+  border-color: var(--button-primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+/* 开关样式 */
+.toggle-wrapper {
+  position: relative;
+}
+
+.toggle {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-label {
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 2;
+  cursor: pointer;
+  user-select: none;
 }
 
-.edit-btn:hover {
-  opacity: 1;
-  transform: scale(1.1) rotate(15deg);
-  background-color: var(--color-background-mute);
-  color: var(--button-primary);
+.toggle-label::before {
+  content: '';
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  background-color: var(--color-border);
+  border-radius: 10px;
+  margin-right: 8px;
+  position: relative;
+  transition: all 0.3s ease;
 }
 
-/* 移动端优化 - 更紧凑的卡片 */
+.toggle-label::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  background-color: white;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.toggle:checked + .toggle-label::before {
+  background-color: var(--button-primary);
+}
+
+.toggle:checked + .toggle-label::after {
+  left: 19px;
+}
+
+.toggle-text {
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+/* 移动端优化 */
 @media (max-width: 768px) {
-  .stat-card {
-    padding: 8px 8px;
+  .config-row {
+    gap: 10px;
   }
   
-  .stat-value {
-    font-size: 16px;
-  }
-  
-  .stat-label {
-    font-size: 12px;
-    margin-top: 2px;
-  }
-  
-  .edit-btn {
-    top: 3px;
-    right: 3px;
-    padding: 2px;
+  .config-group {
+    min-width: 100px;
   }
 }
 
 /* 小屏幕手机进一步优化 */
 @media (max-width: 480px) {
-  .stat-card {
-    padding: 6px 6px;
+  .config-row {
+    flex-direction: column;
+    gap: 10px;
   }
   
-  .stat-value {
-    font-size: 14px;
+  .config-group {
+    width: 100%;
   }
   
-  .stat-label {
-    font-size: 11px;
-    margin-top: 1px;
+  .config-form {
+    padding: 15px;
   }
 }
 </style> 

@@ -1,8 +1,7 @@
-import requests
 import json
 import os
 import asyncio
-from app.models import ChatCompletionRequest, Message
+from app.models.schemas import ChatCompletionRequest
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 import httpx

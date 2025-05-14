@@ -129,8 +129,11 @@ async def get_dashboard_data():
         # 添加Vertex Express配置
         "enable_vertex_express": settings.ENABLE_VERTEX_EXPRESS,
         "vertex_express_api_key": bool(settings.VERTEX_EXPRESS_API_KEY),  # 只返回是否设置的状态
+        "google_credentials_json": bool(settings.GOOGLE_CREDENTIALS_JSON),  # 只返回是否设置的状态
         # 添加最大重试次数
         "max_retry_num": settings.MAX_RETRY_NUM,
+        # 添加空响应重试次数限制
+        "max_empty_responses": settings.MAX_EMPTY_RESPONSES,
     }
 
 @dashboard_router.post("/reset-stats")
@@ -382,6 +385,16 @@ async def update_config(config_data: dict):
             
             log('info', f"已添加 {added_key_count} 个新API密钥，当前共有 {len(key_manager.api_keys)} 个")
                 
+        elif config_key == "max_empty_responses":
+            try:
+                value = int(config_value)
+                if value < 0: # 通常至少为0或1，根据实际需求调整
+                    raise ValueError("空响应重试次数不能为负数")
+                settings.MAX_EMPTY_RESPONSES = value
+                log('info', f"空响应重试次数已更新为：{value}")
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=f"参数类型错误：{str(e)}")
+        
         else:
             raise HTTPException(status_code=400, detail=f"不支持的配置项：{config_key}")
         save_settings()

@@ -1,19 +1,16 @@
 import json
-from fastapi import APIRouter, HTTPException, Request, Depends, status
+from typing import Optional, Union
+from fastapi import APIRouter, Body, HTTPException, Path, Query, Request, Depends, status, Header
 from fastapi.responses import StreamingResponse
-from app.models import ChatCompletionRequest, ChatCompletionResponse, ModelList
 from app.services import GeminiClient
-from app.utils import protect_from_abuse,generate_cache_key_all,generate_cache_key,openAI_from_text,log
+from app.utils import protect_from_abuse,generate_cache_key,openAI_from_text,log
 from app.utils.response import openAI_from_Gemini
+from app.utils.auth import custom_verify_password
 from .stream_handlers import process_stream_request
 from .nonstream_handlers import process_request
-from app.models.schemas import ChatCompletionResponse
-from app.vertex.vertex import list_models as list_models_vertex
+from app.models.schemas import ChatCompletionRequest, ChatCompletionResponse, ModelList, AIRequest, ChatRequestGemini
 import app.config.settings as settings
 import asyncio
-
-# 导入拆分后的模块
-from .auth import verify_password
 
 # 创建路由器
 router = APIRouter()
@@ -62,23 +59,28 @@ def init_router(
     MAX_REQUESTS_PER_MINUTE = _max_requests_per_minute
     MAX_REQUESTS_PER_DAY_PER_IP = _max_requests_per_day_per_ip
 
-# 自定义密码验证依赖
-async def custom_verify_password(request: Request):
-    await verify_password(request, settings.PASSWORD)
-
 async def verify_user_agent(request: Request):
     if not settings.WHITELIST_USER_AGENT:
         return
     if request.headers.get("User-Agent") not in settings.WHITELIST_USER_AGENT:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed client")
 
-async def get_cached(cache_key,is_stream: bool):
+# todo : 添加 gemini 支持(流式返回)
+async def get_cache(cache_key,is_stream: bool,is_gemini=False):
     # 检查缓存是否存在，如果存在，返回缓存
     cached_response, cache_hit = await response_cache_manager.get_and_remove(cache_key)
     
     if cache_hit and cached_response:
         log('info', f"缓存命中: {cache_key[:8]}...", 
             extra={'request_type': 'non-stream', 'model': cached_response.model})
+        
+        if is_gemini:
+            if is_stream:
+                data = f"data: {json.dumps(cached_response.data, ensure_ascii=False)}\n\n"
+                return StreamingResponse(data, media_type="text/event-stream")
+            else:
+                return cached_response.data
+            
         
         if is_stream:
             chunk = openAI_from_Gemini(cached_response,stream=True)
@@ -119,20 +121,26 @@ async def list_models(_ = Depends(custom_verify_password),
     return await aistudio_list_models(_, _2)
 
 @router.post("/aistudio/chat/completions", response_model=ChatCompletionResponse)
-async def aistudio_chat_completions(request: ChatCompletionRequest, http_request: Request,
-                                    _ = Depends(custom_verify_password),
-                                    _2 = Depends(verify_user_agent)):
-    
-    global current_api_key
+async def aistudio_chat_completions(
+    request: Union[ChatCompletionRequest, AIRequest],
+    http_request: Request,
+    _ = Depends(custom_verify_password),
+    _2 = Depends(verify_user_agent),
+):
+    format_type = getattr(request, 'format_type', None)
+    if format_type and (format_type == "gemini"):
+        is_gemini = True
+    else:
+        is_gemini = False
     
     # 生成缓存键 - 用于匹配请求内容对应缓存
     if settings.PRECISE_CACHE:
-        cache_key = generate_cache_key_all(request)
+        cache_key = generate_cache_key(request, is_gemini = is_gemini)
     else:    
-        cache_key = generate_cache_key(request,8)
+        cache_key = generate_cache_key(request, last_n_messages = 8,is_gemini = is_gemini)
     
     # 请求前基本检查
-    await protect_from_abuse( 
+    await protect_from_abuse(
         http_request, 
         settings.MAX_REQUESTS_PER_MINUTE, 
         settings.MAX_REQUESTS_PER_DAY_PER_IP)
@@ -149,7 +157,7 @@ async def aistudio_chat_completions(request: ChatCompletionRequest, http_request
         extra={'request_type': 'non-stream', 'model': request.model})
     
     # 检查缓存是否存在，如果存在，返回缓存
-    cached_response = await  get_cached(cache_key, is_stream = request.stream)
+    cached_response = await get_cache(cache_key, is_stream = request.stream,is_gemini=is_gemini)
     if cached_response :
         return cached_response
     
@@ -166,7 +174,7 @@ async def aistudio_chat_completions(request: ChatCompletionRequest, http_request
             # 等待已有任务完成
             try:
                 # 设置超时，避免无限等待
-                await asyncio.wait_for(active_task, timeout=180)
+                await asyncio.wait_for(active_task, timeout=240)
                 
                 # 使用任务结果
                 if active_task.done() and not active_task.cancelled():
@@ -232,7 +240,7 @@ async def aistudio_chat_completions(request: ChatCompletionRequest, http_request
             active_requests_manager.remove(pool_key)
         
         # 检查是否已有缓存的结果（可能是由另一个任务创建的）
-        cached_response = await get_cached(cache_key, is_stream = request.stream)
+        cached_response = await get_cache(cache_key, is_stream = request.stream,is_gemini=is_gemini)
         if cached_response :
             return cached_response
         
@@ -240,10 +248,12 @@ async def aistudio_chat_completions(request: ChatCompletionRequest, http_request
         raise HTTPException(status_code=500, detail=f" hajimi 服务器内部处理时发生错误\n具体原因:{e}")
 
 @router.post("/vertex/chat/completions", response_model=ChatCompletionResponse)
-async def vertex_chat_completions(request: ChatCompletionRequest, http_request: Request,
-                                  _ = Depends(custom_verify_password),
-                                  _2 = Depends(verify_user_agent)):
-    global current_api_key
+async def vertex_chat_completions(
+    request: ChatCompletionRequest, 
+    http_request: Request,
+    _dp = Depends(custom_verify_password),
+    _du = Depends(verify_user_agent),
+    ):
 
     # 使用Vertex AI实现
     from app.vertex.vertex import chat_completions as vertex_chat_completions
@@ -253,8 +263,8 @@ async def vertex_chat_completions(request: ChatCompletionRequest, http_request: 
     openai_messages = []
     for message in request.messages:
         openai_messages.append(OpenAIMessage(
-            role=message.role,
-            content=message.content
+            role=message.get('role', ''),
+            content=message.get('content', '')
         ))
     
     # 转换请求格式
@@ -280,10 +290,37 @@ async def vertex_chat_completions(request: ChatCompletionRequest, http_request: 
 
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
-async def chat_completions(request: ChatCompletionRequest, http_request: Request,
-                           _ = Depends(custom_verify_password),
-                           _2 = Depends(verify_user_agent)):
+async def chat_completions(
+    request: ChatCompletionRequest,
+    http_request: Request,
+    _dp = Depends(custom_verify_password),
+    _du = Depends(verify_user_agent),
+):
     """处理API请求的主函数，根据需要处理流式或非流式请求"""
     if settings.ENABLE_VERTEX:
-        return await vertex_chat_completions(request, http_request, _, _2)
-    return await aistudio_chat_completions(request, http_request, _, _2)
+        return await vertex_chat_completions(request, http_request)
+    return await aistudio_chat_completions(request, http_request)
+
+@router.post("/gemini/{api_version:str}/models/{model_and_responseType:path}")
+async def gemini_chat_completions(
+    request: Request,
+    model_and_responseType: str = Path(...),
+    key: Optional[str] = Query(None),
+    alt: Optional[str] = Query(None, description=" sse 或 None"),
+    payload: ChatRequestGemini = Body(...),
+    _dp = Depends(custom_verify_password),
+    _du = Depends(verify_user_agent),
+):
+    # 提取路径参数
+    is_stream = False
+    try:
+        model_name, action_type = model_and_responseType.split(":", 1)
+        if action_type == "streamGenerateContent":
+            is_stream = True
+        
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的请求路径")
+    
+    geminiRequest = AIRequest(payload=payload,model=model_name,stream=is_stream,format_type='gemini')
+    return await aistudio_chat_completions(geminiRequest, request)
+        

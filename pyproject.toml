@@ -19,4 +19,6 @@ dependencies = [
     "tzdata>=2025.2",
     "uvicorn>=0.34.2",
     "xxhash>=0.8.2",
+    "openai>=1.76.0",
+    "tzdata",
 ]

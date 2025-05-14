@@ -1,30 +1,61 @@
 import asyncio
+import json
 from fastapi.responses import StreamingResponse
-from app.models import ChatCompletionRequest
+from app.models.schemas import ChatCompletionRequest
 from app.services import GeminiClient
 from app.utils import handle_gemini_error, update_api_call_stats,log,openAI_from_text
-from app.utils.response import openAI_from_Gemini
+from app.utils.response import openAI_from_Gemini,gemini_from_text
 from app.utils.stats import get_api_key_usage
 import app.config.settings as settings
 
 async def stream_response_generator(
-    chat_request: ChatCompletionRequest,
+    chat_request,
     key_manager,
     response_cache_manager,
     safety_settings,
     safety_settings_g2,
     cache_key: str
 ):
-    # 转换消息格式
-    contents, system_instruction = GeminiClient.convert_messages(
-    GeminiClient, chat_request.messages,model=chat_request.model)
-
-
-    # 获取有效的API密钥
-    valid_keys = []
-    for _ in range(len(key_manager.api_keys)):
-        api_key = await key_manager.get_available_key()
-        if api_key:
+    format_type = getattr(chat_request, 'format_type', None)
+    if format_type and (format_type == "gemini"):
+        is_gemini = True
+        contents, system_instruction = None,None
+    else:
+        is_gemini = False
+        # 转换消息格式
+        contents, system_instruction = GeminiClient.convert_messages(GeminiClient, chat_request.messages,model=chat_request.model)
+    # 设置初始并发数
+    current_concurrent = settings.CONCURRENT_REQUESTS
+    max_retry_num = settings.MAX_RETRY_NUM
+    
+    # 当前请求次数
+    current_try_num = 0
+    
+    # 空响应计数
+    empty_response_count = 0
+    
+    # (假流式) 尝试使用不同API密钥，直到达到最大重试次数或空响应限制
+    while (settings.FAKE_STREAMING and (current_try_num < max_retry_num) and (empty_response_count < settings.MAX_EMPTY_RESPONSES)):
+        # 获取当前批次的密钥数量
+        batch_num = min(max_retry_num - current_try_num, current_concurrent)
+        
+        # 获取当前批次的密钥
+        valid_keys = []
+        checked_keys = set()  # 用于记录已检查过的密钥
+        all_keys_checked = False  # 标记是否已检查所有密钥
+        
+        # 尝试获取足够数量的有效密钥
+        while len(valid_keys) < batch_num:
+            api_key = await key_manager.get_available_key()
+            if not api_key:
+                break
+                
+            # 如果这个密钥已经检查过，说明已经检查了所有密钥
+            if api_key in checked_keys:
+                all_keys_checked = True
+                break
+            
+            checked_keys.add(api_key)
             # 获取API密钥的调用次数
             usage = await get_api_key_usage(settings.api_call_stats, api_key)
             # 如果调用次数小于限制，则添加到有效密钥列表
@@ -33,48 +64,28 @@ async def stream_response_generator(
             else:
                 log('warning', f"API密钥 {api_key[:8]}... 已达到每日调用限制 ({usage}/{settings.API_KEY_DAILY_LIMIT})",
                     extra={'key': api_key[:8], 'request_type': 'stream', 'model': chat_request.model})
-    
-    # 如果没有有效密钥，则随机使用一个密钥
-    if not valid_keys:
-        log('warning', "所有API密钥已达到每日调用限制，将随机使用一个密钥",
-            extra={'request_type': 'stream', 'model': chat_request.model})
-        # 重置密钥栈并获取一个密钥
-        key_manager._reset_key_stack() 
-        get_key = await key_manager.get_available_key()
-        valid_keys = [get_key] if get_key else []
-
-    # 设置初始并发数
-    current_concurrent = settings.CONCURRENT_REQUESTS
-    max_retry_num =  settings.MAX_RETRY_NUM
-    
-    
-    # 如果可用密钥数量小于并发数，则使用所有可用密钥
-    keys_num = len(valid_keys)
-    if keys_num < current_concurrent:
-        current_concurrent = keys_num
-    
-    # 当前请求次数
-    current_try_num = 0
-    
-    # 空响应计数
-    empty_response_count = 0
-    
-    # (假流式) 尝试使用不同API密钥，直到所有密钥都尝试过
-    while (valid_keys and settings.FAKE_STREAMING and (current_try_num < min(max_retry_num,keys_num)) ):
         
-        # 获取当前批次的密钥
-        batch_num= min(max_retry_num - current_try_num, current_concurrent)
+        # 如果已经检查了所有密钥且没有找到有效密钥，则重置密钥栈
+        if all_keys_checked and not valid_keys:
+            log('warning', "所有API密钥已达到每日调用限制，重置密钥栈",
+                extra={'request_type': 'stream', 'model': chat_request.model})
+            key_manager._reset_key_stack()
+            # 重置后重新获取一个密钥
+            api_key = await key_manager.get_available_key()
+            if api_key:
+                valid_keys = [api_key]
         
-        current_batch = valid_keys[:batch_num]
-        valid_keys = valid_keys[batch_num:]
-        
+        # 如果没有获取到任何有效密钥，跳出循环
+        if not valid_keys:
+            break
+            
         # 更新当前尝试次数
-        current_try_num += batch_num
+        current_try_num += len(valid_keys)
         
         # 创建并发任务
         tasks = []
         tasks_map = {}
-        for api_key in current_batch:
+        for api_key in valid_keys:
             # 假流式模式的处理逻辑
             log('info', f"假流式请求开始，使用密钥: {api_key[:8]}...",
                 extra={'key': api_key[:8], 'request_type': 'fake-stream', 'model': chat_request.model})
@@ -106,8 +117,11 @@ async def stream_response_generator(
             )
             
             # 如果没有任务完成，发送保活消息
-            if not done : 
-                yield openAI_from_text(model=chat_request.model,content='',stream=True)
+            if not done :
+                if is_gemini:
+                    yield gemini_from_text(content='',stream=True)
+                else:
+                    yield openAI_from_text(model=chat_request.model,content='',stream=True)
                 continue
             
             # 检查已完成的任务是否成功
@@ -123,7 +137,12 @@ async def stream_response_generator(
                                 extra={'key': api_key[:8],'request_type': "fake-stream", 'model': chat_request.model})
                             cached_response, cache_hit = await response_cache_manager.get_and_remove(cache_key)
                             if cache_hit and cached_response: 
-                                yield openAI_from_Gemini(cached_response,stream=True)
+                                if is_gemini :
+                                    json_payload = json.dumps(cached_response.data, ensure_ascii=False)
+                                    data_to_yield = f"data: {json_payload}\n\n"
+                                    yield data_to_yield
+                                else:
+                                    yield openAI_from_Gemini(cached_response,stream=True)
                             else:
                                 success = False
                             break
@@ -146,7 +165,10 @@ async def stream_response_generator(
             if empty_response_count >= settings.MAX_EMPTY_RESPONSES:
                 log('warning', f"空响应次数达到限制 ({empty_response_count}/{settings.MAX_EMPTY_RESPONSES})，停止轮询",
                     extra={'request_type': 'fake-stream', 'model': chat_request.model})
-                yield openAI_from_text(model=chat_request.model,content="空响应次数达到上限\n请修改输入提示词",finish_reason="stop",stream=True)
+                if is_gemini :
+                    yield gemini_from_text(content="空响应次数达到上限\n请修改输入提示词",finish_reason="STOP",stream=True)
+                else:
+                    yield openAI_from_text(model=chat_request.model,content="空响应次数达到上限\n请修改输入提示词",finish_reason="stop",stream=True)
                 
                 return
             
@@ -160,12 +182,53 @@ async def stream_response_generator(
             log('info', f"所有假流式请求失败，增加并发数至: {current_concurrent}", 
                 extra={'request_type': 'stream', 'model': chat_request.model})
 
-    # (真流式) 尝试使用不同API密钥，直到所有密钥都尝试过或达到尝试上限
-    while (valid_keys and not settings.FAKE_STREAMING and (current_try_num < min(max_retry_num,keys_num)) ):
+    # (真流式) 尝试使用不同API密钥，直到达到最大重试次数或空响应限制
+    while (not settings.FAKE_STREAMING and (current_try_num < max_retry_num) and (empty_response_count < settings.MAX_EMPTY_RESPONSES)):
+        # 获取当前批次的密钥
+        valid_keys = []
+        checked_keys = set()  # 用于记录已检查过的密钥
+        all_keys_checked = False  # 标记是否已检查所有密钥
+        
+        # 尝试获取一个有效密钥
+        while len(valid_keys) < 1:
+            api_key = await key_manager.get_available_key()
+            if not api_key:
+                break
+                
+            # 如果这个密钥已经检查过，说明已经检查了所有密钥
+            if api_key in checked_keys:
+                all_keys_checked = True
+                break
+            
+            checked_keys.add(api_key)
+            # 获取API密钥的调用次数
+            usage = await get_api_key_usage(settings.api_call_stats, api_key)
+            # 如果调用次数小于限制，则添加到有效密钥列表
+            if usage < settings.API_KEY_DAILY_LIMIT:
+                valid_keys.append(api_key)
+            else:
+                log('warning', f"API密钥 {api_key[:8]}... 已达到每日调用限制 ({usage}/{settings.API_KEY_DAILY_LIMIT})",
+                    extra={'key': api_key[:8], 'request_type': 'stream', 'model': chat_request.model})
+        
+        # 如果已经检查了所有密钥且没有找到有效密钥，则重置密钥栈
+        if all_keys_checked and not valid_keys:
+            log('warning', "所有API密钥已达到每日调用限制，重置密钥栈",
+                extra={'request_type': 'stream', 'model': chat_request.model})
+            key_manager._reset_key_stack()
+            # 重置后重新获取一个密钥
+            api_key = await key_manager.get_available_key()
+            if api_key:
+                valid_keys = [api_key]
+        
+        # 如果没有获取到任何有效密钥，跳出循环
+        if not valid_keys:
+            break
+            
+        # 更新当前尝试次数
+        current_try_num += 1
+        
         # 获取密钥
         api_key = valid_keys[0]
-        valid_keys = valid_keys[1:]
-        current_try_num += 1
         
         success = False
         try:            
@@ -186,10 +249,16 @@ async def stream_response_generator(
                     if chunk.total_token_count:
                         token = int(chunk.total_token_count)
                     success = True
-                    data = openAI_from_Gemini(chunk,stream=True)
+                    
+                    if is_gemini:
+                        json_payload = json.dumps(chunk.data, ensure_ascii=False)
+                        data = f"data: {json_payload}\n\n"
+                    else:
+                        data = openAI_from_Gemini(chunk,stream=True)
+                    
                     # log('info', f"流式响应发送数据: {data}")
                     yield data
-                
+                    
                 else:
                     log('warning', f"流式请求返回空响应，空响应计数: {empty_response_count}/{settings.MAX_EMPTY_RESPONSES}",
                         extra={'key': api_key[:8], 'request_type': 'stream', 'model': chat_request.model})
@@ -207,7 +276,6 @@ async def stream_response_generator(
             error_detail = handle_gemini_error(e, api_key)
             log('error', f"流式响应: API密钥 {api_key[:8]}... 请求失败: {error_detail}",
                 extra={'key': api_key[:8], 'request_type': 'stream', 'model': chat_request.model})
-            return
         finally: 
             # 如果成功获取相应，更新API调用统计
             if success:
@@ -225,14 +293,21 @@ async def stream_response_generator(
                 log('warning', f"空响应次数达到限制 ({empty_response_count}/{settings.MAX_EMPTY_RESPONSES})，停止轮询",
                     extra={'request_type': 'stream', 'model': chat_request.model})
                 
-                yield openAI_from_text(model=chat_request.model,content="空响应次数达到上限\n请修改输入提示词",finish_reason="stop",stream=True)
+                if is_gemini:
+                    yield gemini_from_text(content="空响应次数达到上限\n请修改输入提示词",finish_reason="STOP",stream=True)
+                else:
+                    yield openAI_from_text(model=chat_request.model,content="空响应次数达到上限\n请修改输入提示词",finish_reason="stop",stream=True)
                 
                 return
     
     # 所有API密钥都尝试失败的处理
     log('error', "所有 API 密钥均请求失败，请稍后重试",
         extra={'key': 'ALL', 'request_type': 'stream', 'model': chat_request.model})
-    yield openAI_from_text(model=chat_request.model,content="所有API密钥均请求失败\n具体错误请查看轮询日志",finish_reason="stop")
+    
+    if is_gemini:
+        yield gemini_from_text(content="所有API密钥均请求失败\n具体错误请查看轮询日志",finish_reason="STOP",stream=True)
+    else:
+        yield openAI_from_text(model=chat_request.model,content="所有API密钥均请求失败\n具体错误请查看轮询日志",finish_reason="stop")
 
 # 处理假流式模式
 async def handle_fake_streaming(api_key,chat_request, contents, response_cache_manager,system_instruction, safety_settings, safety_settings_g2, cache_key):
@@ -258,8 +333,8 @@ async def handle_fake_streaming(api_key,chat_request, contents, response_cache_m
             extra={'key': api_key[:8], 'request_type': 'fake-stream', 'model': chat_request.model})
 
         # 更新API调用统计
-        await update_api_call_stats(settings.api_call_stats, endpoint=api_key, model=chat_request.model,token=response_content.total_token_count) 
-                    
+        await update_api_call_stats(settings.api_call_stats, endpoint=api_key, model=chat_request.model,token=response_content.total_token_count)
+        
         # 检查响应内容是否为空
         if not response_content or not response_content.text:
             log('warning', f"请求返回空响应",

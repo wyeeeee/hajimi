@@ -1,45 +1,107 @@
 <script setup>
 import { useDashboardStore } from '../../../stores/dashboard'
+import { ref, reactive, watch } from 'vue'
 
 const dashboardStore = useDashboardStore()
 
-// 传递编辑函数
-const props = defineProps({
-  openEditDialog: {
-    type: Function,
-    required: true
+// Initialize localConfig with default structure
+const localConfig = reactive({
+  maxRequestsPerMinute: 0,
+  maxRequestsPerDayPerIp: 0
+})
+
+const populatedFromStore = ref(false);
+
+// Watch for store changes to populate localConfig ONCE when config is loaded
+watch(
+  () => ({
+    storeMaxRequestsPerMinute: dashboardStore.config.maxRequestsPerMinute,
+    storeMaxRequestsPerDayPerIp: dashboardStore.config.maxRequestsPerDayPerIp,
+    configIsActuallyLoaded: dashboardStore.isConfigLoaded,
+  }),
+  (newValues) => {
+    if (newValues.configIsActuallyLoaded && !populatedFromStore.value) {
+      localConfig.maxRequestsPerMinute = newValues.storeMaxRequestsPerMinute;
+      localConfig.maxRequestsPerDayPerIp = newValues.storeMaxRequestsPerDayPerIp;
+      populatedFromStore.value = true;
+    }
+  },
+  { deep: true, immediate: true }
+)
+
+// 保存组件配置
+async function saveComponentConfigs(passwordFromParent) {
+  if (!passwordFromParent) {
+    return { success: false, message: '基本配置: 密码未提供' }
   }
+
+  let allSucceeded = true;
+  let individualMessages = [];
+
+  // 逐个保存配置项
+  const configKeys = Object.keys(localConfig)
+  for (const key of configKeys) {
+    // 如果配置有变化才更新
+    if (localConfig[key] !== dashboardStore.config[key]) {
+      try {
+        await dashboardStore.updateConfig(key, localConfig[key], passwordFromParent)
+        // 更新store中的值 - 仅在API调用成功后
+        dashboardStore.config[key] = localConfig[key]
+        individualMessages.push(`${key} 保存成功`);
+      } catch (error) {
+        allSucceeded = false;
+        individualMessages.push(`${key} 保存失败: ${error.message || '未知错误'}`);
+      }
+    }
+  }
+
+  if (allSucceeded && individualMessages.length === 0) {
+    // 如果没有任何更改，也算成功，但提示用户
+     return { success: true, message: '基本配置: 无更改需要保存' };
+  }
+  
+  return {
+    success: allSucceeded,
+    message: `基本配置: ${individualMessages.join('; ')}`
+  };
+}
+
+defineExpose({
+  saveComponentConfigs,
+  localConfig
 })
 </script>
 
 <template>
-  <div>
+  <div class="basic-config">
     <h3 class="section-title">基本配置</h3>
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.maxRequestsPerMinute }}</div>
-        <div class="stat-label">每分钟请求限制</div>
-        <button class="edit-btn" @click="props.openEditDialog('maxRequestsPerMinute', dashboardStore.config.maxRequestsPerMinute)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
+    
+    <div class="config-form">
+      <!-- 数值配置项 -->
+      <div class="config-row">
+        <div class="config-group">
+          <label class="config-label">每分钟请求限制</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.maxRequestsPerMinute" 
+            min="0"
+          >
+        </div>
+        
+        <div class="config-group">
+          <label class="config-label">每IP每日请求限制</label>
+          <input 
+            type="number" 
+            class="config-input" 
+            v-model.number="localConfig.maxRequestsPerDayPerIp" 
+            min="0"
+          >
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.maxRequestsPerDayPerIp }}</div>
-        <div class="stat-label">每IP每日请求限制</div>
-        <button class="edit-btn" @click="props.openEditDialog('maxRequestsPerDayPerIp', dashboardStore.config.maxRequestsPerDayPerIp)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ dashboardStore.config.currentTime }}</div>
-        <div class="stat-label">当前服务器时间</div>
-      </div>
+      
+      <!-- 移除独立的保存区域 -->
+      <!-- 消息提示由父组件处理 -->
     </div>
   </div>
 </template>
@@ -65,145 +127,79 @@ const props = defineProps({
   background: var(--gradient-primary);
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
-  margin-top: 15px;
-  margin-bottom: 20px;
+.basic-config {
+  margin-bottom: 25px;
 }
 
-/* 移动端优化 - 保持三栏但减小间距 */
-@media (max-width: 768px) {
-  .stats-grid {
-    gap: 8px;
-  }
-}
-
-.stat-card {
+.config-form {
   background-color: var(--stats-item-bg);
-  padding: 10px 15px;
   border-radius: var(--radius-lg);
-  text-align: center;
+  padding: 20px;
   box-shadow: var(--shadow-sm);
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
   border: 1px solid var(--card-border);
 }
 
-.stat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
-  background: var(--gradient-secondary);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-md);
-  border-color: var(--button-primary);
-}
-
-.stat-card:hover::before {
-  opacity: 1;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: var(--button-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: all 0.3s ease;
-  margin-bottom: 5px;
-  position: relative;
-  display: inline-block;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: var(--color-text);
-  margin-top: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: all 0.3s ease;
-  opacity: 0.8;
-}
-
-.stat-card:hover .stat-label {
-  opacity: 1;
-  color: var(--color-heading);
-}
-
-/* 编辑按钮样式 */
-.edit-btn {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.3s ease;
-  padding: 4px;
-  border-radius: var(--radius-md);
+.config-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
+  gap: 15px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
 }
 
-.edit-btn:hover {
-  opacity: 1;
-  transform: scale(1.1) rotate(15deg);
-  background-color: var(--color-background-mute);
-  color: var(--button-primary);
+.config-group {
+  flex: 1;
+  min-width: 120px;
 }
 
-/* 移动端优化 - 更紧凑的卡片 */
+.config-label {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 5px;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.config-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.config-input:focus {
+  outline: none;
+  border-color: var(--button-primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+/* 移动端优化 */
 @media (max-width: 768px) {
-  .stat-card {
-    padding: 8px 8px;
+  .config-row {
+    gap: 10px;
   }
   
-  .stat-value {
-    font-size: 16px;
-  }
-  
-  .stat-label {
-    font-size: 12px;
-    margin-top: 2px;
-  }
-  
-  .edit-btn {
-    top: 3px;
-    right: 3px;
-    padding: 2px;
+  .config-group {
+    min-width: 100px;
   }
 }
 
 /* 小屏幕手机进一步优化 */
 @media (max-width: 480px) {
-  .stat-card {
-    padding: 6px 6px;
+  .config-row {
+    flex-direction: column;
+    gap: 10px;
   }
   
-  .stat-value {
-    font-size: 14px;
+  .config-group {
+    width: 100%;
   }
   
-  .stat-label {
-    font-size: 11px;
-    margin-top: 1px;
+  .config-form {
+    padding: 15px;
   }
 }
 </style> 

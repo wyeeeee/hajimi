@@ -31,6 +31,30 @@ def openAI_from_text(model="gemini",content=None,finish_reason=None,total_token_
         formatted_chunk["object"] = "chat.completion"
         return formatted_chunk
 
+def gemini_from_text(content=None, finish_reason=None, total_token_count=0, stream=True): 
+    """
+    根据传入参数，创建 Gemini API 标准响应对象块 (GenerateContentResponse 格式)。
+    """
+    gemini_response = {
+        "candidates": {
+            "index": 0,
+            "content": {
+                "parts": [],
+                "role": "model"
+            }
+        }
+    }
+    if content:
+        gemini_response["candidates"]["content"]["parts"].append({"text": content})
+    
+    if finish_reason:
+        gemini_response["usageMetadata"]= {"totalTokenCount": total_token_count}
+    
+    if stream:
+        return f"data: {json.dumps(gemini_response, ensure_ascii=False)}\n\n"
+    else:
+        return gemini_response
+
 
 def openAI_from_Gemini(response,stream=True):
     """

@@ -1,17 +1,13 @@
 from typing import List, Dict, Optional, Union, Literal, Any
 from pydantic import BaseModel, Field
 
-class Message(BaseModel):
-    role: str
-    content: Union[str, List[Dict[str, Any]], None] = None 
-    tool_call_id: Optional[str] = None # Used when role is 'tool'
-
+# openAI 请求
 class ChatCompletionRequest(BaseModel):
     model: str
-    messages: List[Message]
+    messages: List[Dict[str, Any]]
     temperature: float = 0.7
-    top_p: Optional[float] = 1.0
-    top_k: Optional[float] = 40.0
+    top_p: Optional[float] = None
+    top_k: Optional[float] = None
     n: int = 1
     stream: bool = False
     stop: Optional[Union[str, List[str]]] = None
@@ -27,10 +23,21 @@ class ChatCompletionRequest(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[Literal["none", "auto"], Dict[str, Any]]] = "auto"
 
-class Choice(BaseModel):
-    index: int
-    message: Message
-    finish_reason: Optional[str] = None
+# gemini 请求
+class ChatRequestGemini(BaseModel):
+    contents: List[Dict[str, Any]]
+    system_instruction: Optional[Dict[str, Any]]= None
+    systemInstruction: Optional[Dict[str, Any]]= None
+    safetySettings: Optional[List[Dict[str, Any]]] = None
+    generationConfig: Optional[Dict[str, Any]] = None
+    tools: Optional[List[Dict[str, Any]]] = None
+
+# AI模型请求包装
+class AIRequest(BaseModel):
+    payload: Optional[ChatRequestGemini] = None
+    model: Optional[str] = None
+    stream: bool = False
+    format_type: Optional[str] = "gemini"
 
 class Usage(BaseModel):
     prompt_tokens: int = 0
@@ -42,7 +49,7 @@ class ChatCompletionResponse(BaseModel):
     object: Literal["chat.completion"]
     created: int
     model: str
-    choices: List[Choice]
+    choices: List[Any]
     usage: Usage = Field(default_factory=Usage)
 
 class ErrorResponse(BaseModel):
@@ -53,4 +60,9 @@ class ErrorResponse(BaseModel):
 
 class ModelList(BaseModel):
     object: str = "list"
-    data: List[Dict]
+    data: List[Dict[str, Any]]
+
+class ChatResponseGemini(BaseModel):
+    candidates: Optional[List[Any]] = None
+    promptFeedback: Optional[Any] = None
+    usageMetadata: Optional[Dict[str, int]] = None

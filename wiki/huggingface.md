@@ -16,9 +16,7 @@
 ## 1. 安装
 ### 1.1 配置
 ```Dockerfile
-FROM ghcr.io/你的github用户名/hajimi:latest
-EXPOSE 7860
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
+FROM ghcr.io/你的github用户名/hajimi:latest（注意，如果你的github名中有大写字母，请将其替换为小写字母）
 ```
 
 ### 1.2 使用huggingface space部署项目
@@ -27,7 +25,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
 - 注册完成后，进入[spaces](https://huggingface.co/spaces)，如图所示，点击new spaces。<br> 注意：<br>![spaces](./img/spaces.png)
 - 如图所示，填入创建选项，填写完成后，点击create space，一定要记住owner与space name，在之后的酒馆连接中要使用<br> 注意：pace name不要使用任何标点符号<br>![create_space](./img/create_space.png)
 - 如图所示，选择 **Create a new file**<br>![files](./img/files.png)
-- 如图所示，将1.1配置的Dockerfile填入，上传完成后点击Commit changes to main<br>![new](./img/new.png)
+- 如图所示，将1.1配置的Dockerfile填入，上传完成后点击Commit changes to main<br>![new](./img/111.png)
 
 ## 2. 配置
 ### 2.0 什么是环境变量？
@@ -86,7 +84,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
 
 ## 4. 更新
 ### 4.1 更新方法
-- 在单文件版本中，更新只需要在相应的huggingface space的settings中选择Factory rebuild，在rebuild完成后系统会自动更新到最新版
+- 首先参照0.3 更新，同步代码自动构建新镜像，然后更新只需要在相应的huggingface space的settings中选择Factory rebuild，在rebuild完成后系统会自动更新到最新版
 
 ## 5. 注意事项
 ### 5.1 假流式传输模式说明

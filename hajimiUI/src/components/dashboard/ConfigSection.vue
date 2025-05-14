@@ -1,6 +1,6 @@
 <script setup>
 import { useDashboardStore } from '../../stores/dashboard'
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import BasicConfig from './config/BasicConfig.vue'
 import FeaturesConfig from './config/FeaturesConfig.vue'
 import VersionInfo from './config/VersionInfo.vue'
@@ -8,6 +8,16 @@ import VertexConfig from './config/VertexConfig.vue'
 
 const dashboardStore = useDashboardStore()
 const isExpanded = ref(true)
+
+// Refs for child components
+const basicConfigRef = ref(null)
+const featuresConfigRef = ref(null)
+
+// Shared password and messaging
+const sharedPassword = ref('')
+const overallErrorMsg = ref('')
+const overallSuccessMsg = ref('')
+const isOverallSaving = ref(false)
 
 // 配置项解释
 const configExplanations = {
@@ -27,7 +37,8 @@ const configExplanations = {
   searchMode: '是否启用联网搜索功能',
   searchPrompt: '联网搜索提示',
   enableVertexExpress: '是否启用Vertex Express模式',
-  vertexExpressApiKey: 'Vertex Express API密钥'
+  vertexExpressApiKey: 'Vertex Express API密钥',
+  googleCredentialsJson: 'Google Credentials JSON'
 }
 
 // 显示解释的工具提示
@@ -53,124 +64,75 @@ const getFoldIconClass = (isVisible) => {
   return isVisible ? 'fold-icon rotated' : 'fold-icon'
 }
 
-// 编辑配置相关状态
-const editingConfig = ref(null)
-const editValue = ref('')
-const editPassword = ref('')
-const showPasswordInput = ref(false)
-const editError = ref('')
-const hasAuthenticated = ref(false)
-
-// 打开编辑对话框
-function openEditDialog(configKey, currentValue) {
-  editingConfig.value = configKey
-  editValue.value = currentValue
-  editError.value = ''
-  
-  // 如果已经认证过，不需要再次输入密码
-  if (!hasAuthenticated.value) {
-    showPasswordInput.value = true
-  } else {
-    showPasswordInput.value = false
+// 保存所有配置 (Basic 和 Features)
+async function handleSaveAllConfigs() {
+  if (!sharedPassword.value) {
+    overallErrorMsg.value = '请输入管理密码'
+    overallSuccessMsg.value = ''
+    return
   }
-}
 
-// 关闭编辑对话框
-function closeEditDialog() {
-  editingConfig.value = null
-  editValue.value = ''
-  editPassword.value = ''
-  showPasswordInput.value = false
-  editError.value = ''
-}
+  isOverallSaving.value = true
+  overallErrorMsg.value = ''
+  overallSuccessMsg.value = ''
+  let errors = []
+  let successes = []
 
-// 保存配置
-async function saveConfig() {
-  if (!editingConfig.value) return
-  
   try {
-    // 如果需要密码验证
-    if (showPasswordInput.value) {
-      if (!editPassword.value) {
-        editError.value = '请输入密码'
-        return
+    if (basicConfigRef.value && typeof basicConfigRef.value.saveComponentConfigs === 'function') {
+      const result = await basicConfigRef.value.saveComponentConfigs(sharedPassword.value)
+      if (result.success) {
+        successes.push(result.message)
+      } else {
+        errors.push(result.message)
       }
+    } else {
+      // console.warn('BasicConfig ref or saveComponentConfigs method not available');
     }
-    
-    // 根据配置项类型进行类型转换
-    let value = editValue.value
-    if (editingConfig.value === 'vertexExpressApiKey') {
-      // API Key 保持为字符串类型
-      value = String(editValue.value)
-    } else if (typeof dashboardStore.config[editingConfig.value] === 'boolean') {
-      value = editValue.value === 'true' || editValue.value === true
-    } else if (typeof dashboardStore.config[editingConfig.value] === 'number') {
-      value = Number(editValue.value)
-      if (isNaN(value)) {
-        editError.value = '请输入有效的数字'
-        return
+
+    if (featuresConfigRef.value && typeof featuresConfigRef.value.saveComponentConfigs === 'function') {
+      const result = await featuresConfigRef.value.saveComponentConfigs(sharedPassword.value)
+      if (result.success) {
+        successes.push(result.message)
+      } else {
+        errors.push(result.message)
       }
+    } else {
+      // console.warn('FeaturesConfig ref or saveComponentConfigs method not available');
+    }
+
+    if (errors.length > 0) {
+      overallErrorMsg.value = errors.join('; ')
+    } 
+    if (successes.length > 0 && errors.length === 0) {
+      overallSuccessMsg.value = '所有配置已成功保存: ' + successes.join('; ')
+    } else if (successes.length > 0 && errors.length > 0) {
+      overallSuccessMsg.value = '部分配置已保存: ' + successes.join('; ') + '. 部分失败.'
     }
     
-    // 调用API更新配置
-    await dashboardStore.updateConfig(
-      editingConfig.value, 
-      value, 
-      showPasswordInput.value ? editPassword.value : undefined
-    )
-    
-    // 更新本地状态
-    dashboardStore.config[editingConfig.value] = value
-    
-    // 如果输入了密码，标记为已认证
-    if (showPasswordInput.value) {
-      hasAuthenticated.value = true
-    }
-    
-    // 关闭对话框
-    closeEditDialog()
+    // Do not clear password after save attempt
+
   } catch (error) {
-    editError.value = error.message || '保存失败'
+    // This catch block might be redundant if children handle their errors and return status
+    overallErrorMsg.value = error.message || '保存过程中发生意外错误'
+  } finally {
+    isOverallSaving.value = false
   }
 }
 
-// 获取配置项显示值
-function getConfigDisplayValue(key) {
-  const value = dashboardStore.config[key]
-  if (typeof value === 'boolean') {
-    return value ? '启用' : '禁用'
-  }
-  return value
-}
-
-// 获取配置项类型
-function getConfigType(key) {
-  const value = dashboardStore.config[key]
-  // 特殊处理布尔值配置项
-  if (key === 'fakeStreaming' || key === 'enableVertexExpress' || key === 'randomString' || key === 'searchMode') {
-    return 'boolean'
-  }
-  // 特殊处理 API Key 配置项
-  if (key === 'vertexExpressApiKey') {
-    return 'string'
-  }
-  return typeof value
-}
-
-// 监听数据刷新，重置认证状态
-watch(() => dashboardStore.isRefreshing, (newValue, oldValue) => {
-  if (oldValue === true && newValue === false) {
-    // 数据刷新完成，重置认证状态
-    hasAuthenticated.value = false
-  }
-})
+// 监听数据刷新, 如果密码不清空则不需要重置认证
+// watch(() => dashboardStore.isRefreshing, (newValue, oldValue) => {
+//   if (oldValue === true && newValue === false) {
+//     // hasAuthenticated.value = false // No longer used
+//   }
+// });
 </script>
 
 <template>
   <div class="info-box">
     <!-- Vertex模式只显示版本信息和Vertex配置 -->
     <div v-if="dashboardStore.status.enableVertex">
-      <VertexConfig :openEditDialog="openEditDialog" :getConfigDisplayValue="getConfigDisplayValue" />
+      <VertexConfig />
       <VersionInfo />
     </div>
     
@@ -185,27 +147,17 @@ watch(() => dashboardStore.isRefreshing, (newValue, oldValue) => {
         </span>
       </h3>
       
-      <!-- 默认显示的简略配置 -->
+      <!-- 默认显示的简略配置 (只读) -->
       <div v-if="!isExpanded" class="stats-grid">
         <div class="stat-card">
           <div class="stat-value">{{ dashboardStore.config.maxRequestsPerMinute }}</div>
           <div class="stat-label">每分钟请求限制</div>
-          <button class="edit-btn" @click="openEditDialog('maxRequestsPerMinute', dashboardStore.config.maxRequestsPerMinute)">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
-          </button>
+          <!-- 编辑按钮已移除 -->
         </div>
         <div class="stat-card">
           <div class="stat-value">{{ dashboardStore.config.concurrentRequests }}</div>
           <div class="stat-label">并发请求数</div>
-          <button class="edit-btn" @click="openEditDialog('concurrentRequests', dashboardStore.config.concurrentRequests)">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
-          </button>
+          <!-- 编辑按钮已移除 -->
         </div>
         <div class="stat-card">
           <div class="stat-value">{{ dashboardStore.config.currentTime }}</div>
@@ -216,99 +168,42 @@ watch(() => dashboardStore.isRefreshing, (newValue, oldValue) => {
       <!-- 展开后显示的所有配置项 -->
       <transition name="fold">
         <div v-if="isExpanded" class="fold-content">
-          <!-- 基本配置 -->
-          <BasicConfig :openEditDialog="openEditDialog" />
+          <BasicConfig ref="basicConfigRef" />
+          <FeaturesConfig ref="featuresConfigRef" />
+
+
+          <!-- Shared Save Section -->
+          <div class="shared-save-section">
+            <div class="password-input-group">
+              <label for="sharedPasswordInput" class="shared-password-label">管理密码</label>
+              <input 
+                type="password" 
+                id="sharedPasswordInput"
+                v-model="sharedPassword" 
+                placeholder="请输入管理密码以保存更改" 
+                class="config-input"
+              >
+            </div>
+            <button 
+              class="save-all-button" 
+              @click="handleSaveAllConfigs" 
+              :disabled="isOverallSaving"
+            >
+              {{ isOverallSaving ? '保存中...' : '保存基本与功能配置' }}
+            </button>
+          </div>
           
-          <!-- 功能配置 -->
-          <FeaturesConfig :openEditDialog="openEditDialog" :getConfigDisplayValue="getConfigDisplayValue" />
-          
-          <!-- 版本信息 -->
-          <VersionInfo />
+          <!-- Overall Messages -->
+          <div v-if="overallErrorMsg" class="overall-error-message">{{ overallErrorMsg }}</div>
+          <div v-if="overallSuccessMsg" class="overall-success-message">{{ overallSuccessMsg }}</div>
+
         </div>
       </transition>
+      <VersionInfo />
     </div>
     
-    <!-- 工具提示 -->
-    <div class="tooltip" v-if="showTooltip" :style="{ left: tooltipPosition.x + 'px', top: tooltipPosition.y + 'px' }" @mouseleave="hideTooltip">
-      {{ tooltipText }}
-    </div>
-    
-    <!-- 编辑对话框 -->
-    <div class="edit-dialog" v-if="editingConfig">
-      <div class="edit-dialog-content">
-        <h3>编辑配置</h3>
-        <div class="edit-field">
-          <label>{{ configExplanations[editingConfig] }}</label>
-          
-          <!-- 布尔值选择 -->
-          <div v-if="getConfigType(editingConfig) === 'boolean'" class="boolean-selector">
-            <label class="boolean-option">
-              <input type="radio" v-model="editValue" :value="true"> 启用
-            </label>
-            <label class="boolean-option">
-              <input type="radio" v-model="editValue" :value="false"> 禁用
-            </label>
-          </div>
-          
-          <!-- 数字输入 -->
-          <input 
-            v-else-if="getConfigType(editingConfig) === 'number'" 
-            type="number" 
-            v-model="editValue"
-            min="1"
-            class="edit-input"
-          >
-          
-          <!-- 字符串输入 -->
-          <template v-else-if="getConfigType(editingConfig) === 'string'">
-            <!-- 特殊处理searchPrompt，使用textarea -->
-            <textarea
-              v-if="editingConfig === 'searchPrompt'"
-              v-model="editValue"
-              class="edit-input text-area"
-              rows="4"
-              placeholder="请输入联网搜索提示"
-            ></textarea>
-            <!-- API Key输入使用password类型 -->
-            <input 
-              v-else-if="editingConfig === 'vertexExpressApiKey'"
-              type="password" 
-              v-model="editValue"
-              class="edit-input"
-              placeholder="请输入新的 Vertex Express API Key"
-            >
-            <!-- 其他字符串使用普通input -->
-            <input 
-              v-else
-              type="text" 
-              v-model="editValue"
-              class="edit-input"
-            >
-          </template>
-          
-          <!-- 密码输入 -->
-          <div v-if="showPasswordInput" class="password-field">
-            <label>请输入密码</label>
-            <input 
-              type="password" 
-              v-model="editPassword"
-              class="edit-input"
-              placeholder="请输入密码"
-            >
-          </div>
-          
-          <!-- 错误提示 -->
-          <div v-if="editError" class="edit-error">
-            {{ editError }}
-          </div>
-        </div>
-        
-        <div class="edit-actions">
-          <button class="cancel-btn" @click="closeEditDialog">取消</button>
-          <button class="save-btn" @click="saveConfig">保存</button>
-        </div>
-      </div>
-    </div>
+    <!-- 旧的编辑对话框和工具提示已移除 -->
+
   </div>
 </template>
 
@@ -835,5 +730,88 @@ watch(() => dashboardStore.isRefreshing, (newValue, oldValue) => {
   .fold-header {
     padding: 6px 10px;
   }
+}
+
+/* Shared Save Section Styles */
+.shared-save-section {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.password-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.shared-password-label {
+  font-size: 14px;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.config-input { /* Re-using existing class for consistency */
+  width: 100%;
+  padding: 10px 14px; /* Adjusted padding */
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.config-input:focus {
+  outline: none;
+  border-color: var(--button-primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+.save-all-button {
+  padding: 10px 18px;
+  background: var(--button-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+
+.save-all-button:hover {
+  background: var(--button-primary-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.save-all-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.overall-error-message {
+  color: var(--color-error);
+  margin-top: 10px;
+  font-size: 14px;
+  padding: 10px;
+  background-color: var(--color-error-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-error);
+}
+
+.overall-success-message {
+  color: var(--color-success);
+  margin-top: 10px;
+  font-size: 14px;
+  padding: 10px;
+  background-color: var(--color-success-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-success);
 }
 </style>

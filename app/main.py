@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from app.models import ErrorResponse
+from app.models.schemas import ErrorResponse
 from app.services import GeminiClient
 from app.utils import (
     APIKeyManager, 
@@ -53,6 +53,20 @@ active_requests_manager = ActiveRequestsManager(requests_pool=active_requests_po
 SKIP_CHECK_API_KEY = os.environ.get("SKIP_CHECK_API_KEY", "").lower() == "true"
 
 # --------------- 工具函数 ---------------
+# @app.middleware("http")
+# async def log_requests(request: Request, call_next):
+#     """
+#     DEBUG用，接收并打印请求内容
+#     """
+#     log('info', f"接收到请求: {request.method} {request.url}")
+#     try:
+#         body = await request.json()
+#         log('info', f"请求体: {body}")
+#     except Exception:
+#         log('info', "请求体不是 JSON 格式或者为空")
+    
+#     response = await call_next(request)
+#     return response
 
 async def check_remaining_keys_async(keys_to_check: list, initial_invalid_keys: list):
     """
@@ -61,20 +75,17 @@ async def check_remaining_keys_async(keys_to_check: list, initial_invalid_keys: 
     local_invalid_keys = []
     found_valid_keys =False
 
+    log('info', f" 开始在后台检查剩余 API Key 是否有效")
     for key in keys_to_check:
-        try:
-            is_valid = await test_api_key(key)
-            if is_valid:
-                if key not in key_manager.api_keys: # 避免重复添加
-                    key_manager.api_keys.append(key)
-                    found_valid_keys = True
-                log('info', f"API Key {key[:8]}... 有效")
-            else:
-                local_invalid_keys.append(key)
-                log('warning', f" API Key {key[:8]}... 无效")
-        except Exception as e:
-            log('warning', f"检查 API Key {key[:8]}... 时出错",extra={'error_message': str(e)})
-            local_invalid_keys.append(key) # 出错也视为无效
+        is_valid = await test_api_key(key)
+        if is_valid:
+            if key not in key_manager.api_keys: # 避免重复添加
+                key_manager.api_keys.append(key)
+                found_valid_keys = True
+            # log('info', f"API Key {key[:8]}... 有效")
+        else:
+            local_invalid_keys.append(key)
+            log('warning', f" API Key {key[:8]}... 无效")
         
         await asyncio.sleep(0.05) # 短暂休眠，避免请求过于密集
 
@@ -105,10 +116,8 @@ sys.excepthook = handle_exception
 
 @app.on_event("startup")
 async def startup_event():
-    log('info', "Starting Gemini API proxy...")
-    await check_version()
+    
     init_vertex_ai()
-    log('info', "初始化Vertex AI")
     schedule_cache_cleanup(response_cache_manager, active_requests_manager)
     # 检查版本
     await check_version()
