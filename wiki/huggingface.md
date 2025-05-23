@@ -27,6 +27,16 @@ FROM ghcr.io/你的github用户名/hajimi:latest（注意，如果你的github�
 - 如图所示，选择 **Create a new file**<br>![files](./img/files.png)
 - 如图所示，将1.1配置的Dockerfile填入，上传完成后点击Commit changes to main<br>![new](./img/111.png)
 
+### 注意
+
+### 1.3 注册huggingface token
+- 前往[huggingface token](https://huggingface.co/settings/tokens)
+- 点击create new token
+- 只输入token name，其他全部默认，点击create token
+- 记下创建的token，格式为hf_asd************Jojs
+- 之后你在酒馆中的api秘钥位置应该填写这个token
+
+
 ## 2. 配置
 ### 2.0 什么是环境变量？
 - 环境变量是操作系统用来存储有关计算机运行环境的信息的变量。环境变量可以用来配置应用程序的运行环境，例如设置应用程序的路径、配置文件的位置、数据库连接信息等。环境变量通常以键值对的形式存储，可以通过编程语言或命令行工具来访问和修改。
@@ -36,11 +46,16 @@ FROM ghcr.io/你的github用户名/hajimi:latest（注意，如果你的github�
 ### 2.1 配置基础环境变量
 - 如图所示，进入settings界面<br>![settings](./img/settings.png)
 - 如图所示，在settings界面中找到Variables and secrets，点击new secrets<br> 注意：为了api信息不被泄露，请一定要使用new secrets<br>![secrets](./img/secrets.png)
-- 此时你正在进行的活动就叫做添加环境变量，即添加配置信息，在2.1中，我们将添加两个环境变量，分别是`GEMINI_API_KEYS`与`PASSWORD`，如果您不知道其他环境变量的用途，只需要添加这两个环境变量项目即可正常运行，如果您需要添加其他环境变量，请参考2.2中的环境变量说明，自行配置
+- 此时你正在进行的活动就叫做添加环境变量，即添加配置信息，在2.1中，我们将添加三个环境变量，分别是`HUGGINGFACE`，`GEMINI_API_KEYS`与`PASSWORD`，如果您不知道其他环境变量的用途，只需要添加这两个环境变量项目即可正常运行，如果您需要添加其他环境变量，请参考2.2中的环境变量说明，自行配置
 - 如图所示为添加GEMINI_API_KEYS环境变量，可以看到，在name一栏中为该环境变量的名称，此时我们添加的是apikey，确保其环境变量名称即name为GEMINI_API_KEYS，而在value栏中，我们需要填入具体的apikey<br>如图所示，每个apikey之间用英文逗号分割，不需要换行，不需要填入其他信息。全部填入后点击save<br>![KEYS](./img/KEYS.png)
 - 接着我们需要再次点击new secrets，添加PASSWORD环境变量，和上一步一样，我们需要在name一栏中填入PASSWORD，在value栏中填入密码，然后点击save
+-  同理，创建`HUGGINGFACE`，value中填写true
 - 等待项目部署完成，app界面显示如图界面，即完成<br>![app](./img/app.png)
 - 如果您不需要配置其他环境变量，那么到此为止，您已经完成了环境变量的配置，可直接进行使用环节，如果需要配置其他环境变量，请参考2.2中的环境变量说明，自行配置
+
+### 2.1 补充
+- 新版抱脸部署方式改变，请一定要创建一个新的环境变量，名为`HUGGINGFACE`，内容为true
+
 
 ### 2.2 环境变量说明
 
@@ -79,7 +94,7 @@ FROM ghcr.io/你的github用户名/hajimi:latest（注意，如果你的github�
 - 首先我们需要您确认您在1.2中记住的owner与space name，您需要在酒馆中填写的链接的格式为`https://owner-space name.hf.space/v1`，您应该同时检查二者中是否存在标点符号（注意这里的owner与space name只是代称，不是让您真的填入owner与space name这些英文单词）
 - 如果您对上述内容仍有疑问，我们假设小明的owner为xiaoming，space name为gemini，那么小明在酒馆中填写的链接应为`https://xiaoming-gemini.hf.space/v1`
 - 如果您想要测试以上链接是否正确，可以选择去掉链接末尾的v1，对于小明来说，链接应为`https://xiaoming-gemini.hf.space`，打开链接后，您应该正确的看到您所部署的界面
-- 终于，您需要进入到酒馆界面，打开API连接配置（即插头），api选择 聊天补全，聊天补全来源选择 自定义（兼容 OpenAI），自定义端点（基础 URL）填入您的链接，自定义api秘钥填写您在2.1中配置的password，此时的酒馆应该如图所示<br>![sillytavern](./img/sillytavern.png)
+- 终于，您需要进入到酒馆界面，打开API连接配置（即插头），api选择 聊天补全，聊天补全来源选择 自定义（兼容 OpenAI），自定义端点（基础 URL）填入您的链接，自定义api秘钥填写您在2.2中获取的hf_token，此时的酒馆应该如图所示<br>![sillytavern](./img/sillytavern.png)
 - 如果您在填写完以上信息后，下方没有模型供您选择，请您点击连接按钮，此时您应该可以看到模型，选择模型即可使用
 
 ## 4. 更新

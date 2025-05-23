@@ -43,7 +43,9 @@ if hasattr(settings, 'VERTEX_EXPRESS_API_KEY') and settings.VERTEX_EXPRESS_API_K
 # 假流式响应配置
 FAKE_STREAMING_ENABLED = settings.FAKE_STREAMING if hasattr(settings, 'FAKE_STREAMING') else False
 FAKE_STREAMING_INTERVAL_SECONDS = settings.FAKE_STREAMING_INTERVAL if hasattr(settings, 'FAKE_STREAMING_INTERVAL') else 1.0
-vertex_log('info', f"Fake streaming is {'enabled' if FAKE_STREAMING_ENABLED else 'disabled'} with interval {FAKE_STREAMING_INTERVAL_SECONDS} seconds")
+FAKE_STREAMING_CHUNK_SIZE = settings.FAKE_STREAMING_CHUNK_SIZE if hasattr(settings, 'FAKE_STREAMING_CHUNK_SIZE') else 10
+FAKE_STREAMING_DELAY_PER_CHUNK = settings.FAKE_STREAMING_DELAY_PER_CHUNK if hasattr(settings, 'FAKE_STREAMING_DELAY_PER_CHUNK') else 0.1
+vertex_log('info', f"Fake streaming is {'enabled' if FAKE_STREAMING_ENABLED else 'disabled'} with interval {FAKE_STREAMING_INTERVAL_SECONDS} seconds, chunk size {FAKE_STREAMING_CHUNK_SIZE}, delay per chunk {FAKE_STREAMING_DELAY_PER_CHUNK} seconds")
 
 def update_env_var(name, value):
     """Update environment variable in memory."""
@@ -88,12 +90,24 @@ def update_config(name, value):
         global FAKE_STREAMING_ENABLED
         FAKE_STREAMING_ENABLED = value
         vertex_log('info', f"Updated FAKE_STREAMING to {value}")
+        # 确保环境变量也被更新
+        os.environ['FAKE_STREAMING'] = str(value).lower()
     elif name == 'FAKE_STREAMING_INTERVAL':
         # 更新FAKE_STREAMING_INTERVAL配置
         settings.FAKE_STREAMING_INTERVAL = value
         global FAKE_STREAMING_INTERVAL_SECONDS
         FAKE_STREAMING_INTERVAL_SECONDS = value
         vertex_log('info', f"Updated FAKE_STREAMING_INTERVAL to {value}")
+    elif name == 'FAKE_STREAMING_CHUNK_SIZE':
+        settings.FAKE_STREAMING_CHUNK_SIZE = value
+        global FAKE_STREAMING_CHUNK_SIZE
+        FAKE_STREAMING_CHUNK_SIZE = value
+        vertex_log('info', f"Updated FAKE_STREAMING_CHUNK_SIZE to {value}")
+    elif name == 'FAKE_STREAMING_DELAY_PER_CHUNK':
+        settings.FAKE_STREAMING_DELAY_PER_CHUNK = value
+        global FAKE_STREAMING_DELAY_PER_CHUNK
+        FAKE_STREAMING_DELAY_PER_CHUNK = value
+        vertex_log('info', f"Updated FAKE_STREAMING_DELAY_PER_CHUNK to {value}")
     else:
         vertex_log('warning', f"Unknown config variable: {name}")
         return

@@ -1,6 +1,7 @@
 import asyncio
 import json # Needed for error streaming
 import random
+import time
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Dict, Any
@@ -22,7 +23,8 @@ from app.vertex.model_loader import get_vertex_models, get_vertex_express_models
 from app.vertex.message_processing import (
     create_gemini_prompt,
     create_encrypted_gemini_prompt,
-    create_encrypted_full_gemini_prompt
+    create_encrypted_full_gemini_prompt,
+    parse_gemini_response_for_reasoning_and_content
 )
 from app.vertex.api_helpers import (
     create_generation_config,
@@ -99,11 +101,18 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         elif is_nothinking_model: base_model_name = base_model_name[:-len("-nothinking")]
         elif is_max_thinking_model: base_model_name = base_model_name[:-len("-max")]
         
+        # Define supported models for these specific variants
+        supported_flash_variants = [
+            "gemini-2.5-flash-preview-04-17",
+            "gemini-2.5-flash-preview-05-20"
+        ]
+        supported_flash_variants_str = "' or '".join(supported_flash_variants)
+
         # Specific model variant checks (if any remain exclusive and not covered dynamically)
-        if is_nothinking_model and base_model_name != "gemini-2.5-flash-preview-04-17":
-            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-nothinking) is only supported for 'gemini-2.5-flash-preview-04-17'.", "invalid_request_error"))
-        if is_max_thinking_model and base_model_name != "gemini-2.5-flash-preview-04-17":
-            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-max) is only supported for 'gemini-2.5-flash-preview-04-17'.", "invalid_request_error"))
+        if is_nothinking_model and base_model_name not in supported_flash_variants:
+            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-nothinking) is only supported for '{supported_flash_variants_str}'.", "invalid_request_error"))
+        if is_max_thinking_model and base_model_name not in supported_flash_variants:
+            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-max) is only supported for '{supported_flash_variants_str}'.", "invalid_request_error"))
 
         generation_config = create_generation_config(request)
 
@@ -239,50 +248,121 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
             }
 
             if request.stream:
-                async def openai_stream_generator():
-                    try:
-                        stream_response = await openai_client.chat.completions.create(
-                            **openai_params,
-                            extra_body=openai_extra_body
-                        )
-                        async for chunk in stream_response:
-                            try:
-                                yield f"data: {chunk.model_dump_json()}\n\n"
-                            except Exception as chunk_serialization_error:
-                                error_msg_chunk = f"Error serializing OpenAI chunk for {request.model}: {str(chunk_serialization_error)}. Chunk: {str(chunk)[:200]}"
-                                vertex_log('error', error_msg_chunk)
-                                # Truncate
-                                if len(error_msg_chunk) > 1024:
-                                    error_msg_chunk = error_msg_chunk[:1024] + "..."
-                                error_response_chunk = create_openai_error_response(500, error_msg_chunk, "server_error")
-                                json_payload_for_chunk_error = json.dumps(error_response_chunk)
-                                vertex_log('debug', f"DEBUG: Yielding chunk serialization error JSON payload (OpenAI path): {json_payload_for_chunk_error}")
-                                yield f"data: {json_payload_for_chunk_error}\n\n"
-                                yield "data: [DONE]\n\n"
-                                return # Stop further processing for this request
-                        yield "data: [DONE]\n\n"
-                    except Exception as stream_error:
-                        original_error_message = str(stream_error)
-                        # Truncate very long error messages
-                        if len(original_error_message) > 1024:
-                            original_error_message = original_error_message[:1024] + "..."
-                        
-                        error_msg_stream = f"Error during OpenAI client streaming for {request.model}: {original_error_message}"
-                        vertex_log('error', error_msg_stream)
-                        
-                        error_response_content = create_openai_error_response(500, error_msg_stream, "server_error")
-                        json_payload_for_stream_error = json.dumps(error_response_content)
-                        vertex_log('debug', f"DEBUG: Yielding stream error JSON payload (OpenAI path): {json_payload_for_stream_error}")
-                        yield f"data: {json_payload_for_stream_error}\n\n"
-                        yield "data: [DONE]\n\n"
-                return StreamingResponse(openai_stream_generator(), media_type="text/event-stream")
-            else: # Not streaming
+                # 每次调用时直接从settings获取最新的FAKE_STREAMING值
+                fake_streaming_enabled = False
+                if hasattr(settings, 'FAKE_STREAMING'):
+                    fake_streaming_enabled = settings.FAKE_STREAMING
+                else:
+                    fake_streaming_enabled = app_config.FAKE_STREAMING_ENABLED
+                
+                vertex_log('info', f"DEBUG: FAKE_STREAMING setting is {fake_streaming_enabled} for OpenAI model {request.model}")
+                
+                if fake_streaming_enabled:
+                    vertex_log('info', f"INFO: OpenAI Fake Streaming (SSE Simulation) ENABLED for model '{request.model}'.")
+                    # openai_params already has "stream": True from initial setup,
+                    # but openai_fake_stream_generator will make a stream=False call internally.
+                    # Call the now async generator
+                    return StreamingResponse(
+                        openai_fake_stream_generator(
+                            openai_client=openai_client,
+                            openai_params=openai_params,
+                            openai_extra_body=openai_extra_body,
+                            request_obj=request,
+                            is_auto_attempt=False,
+                            # --- New parameters for tokenizer and reasoning split ---
+                            gcp_credentials=rotated_credentials,
+                            gcp_project_id=PROJECT_ID, # This is rotated_project_id
+                            gcp_location=LOCATION,     # This is "global"
+                            base_model_id_for_tokenizer=base_model_name # Stripped model ID for tokenizer
+                        ),
+                        media_type="text/event-stream"
+                    )
+                else: # Regular OpenAI streaming
+                    vertex_log('info', f"INFO: OpenAI True Streaming ENABLED for model '{request.model}'.")
+                    async def openai_true_stream_generator(): # Renamed to avoid conflict
+                        try:
+                            # Ensure stream=True is explicitly passed for real streaming
+                            openai_params_for_true_stream = {**openai_params, "stream": True}
+                            stream_response = await openai_client.chat.completions.create(
+                                **openai_params_for_true_stream,
+                                extra_body=openai_extra_body
+                            )
+                            async for chunk in stream_response:
+                                try:
+                                    chunk_as_dict = chunk.model_dump(exclude_unset=True, exclude_none=True)
+                                    
+                                    choices = chunk_as_dict.get('choices')
+                                    if choices and isinstance(choices, list) and len(choices) > 0:
+                                        delta = choices[0].get('delta')
+                                        if delta and isinstance(delta, dict):
+                                            extra_content = delta.get('extra_content')
+                                            if isinstance(extra_content, dict):
+                                                google_content = extra_content.get('google')
+                                                if isinstance(google_content, dict) and google_content.get('thought') is True:
+                                                    reasoning_text = delta.get('content')
+                                                    if reasoning_text is not None:
+                                                        delta['reasoning_content'] = reasoning_text
+                                                    if 'content' in delta: del delta['content']
+                                                    if 'extra_content' in delta: del delta['extra_content']
+                                    
+                                    # vertex_log('debug', f"DEBUG OpenAI Stream Chunk: {chunk_as_dict}") # Potential verbose log
+                                    yield f"data: {json.dumps(chunk_as_dict)}\n\n"
+
+                                except Exception as chunk_processing_error:
+                                    error_msg_chunk = f"Error processing/serializing OpenAI chunk for {request.model}: {str(chunk_processing_error)}. Chunk: {str(chunk)[:200]}"
+                                    vertex_log('error', error_msg_chunk)
+                                    if len(error_msg_chunk) > 1024: error_msg_chunk = error_msg_chunk[:1024] + "..."
+                                    error_response_chunk = create_openai_error_response(500, error_msg_chunk, "server_error")
+                                    json_payload_for_chunk_error = json.dumps(error_response_chunk)
+                                    yield f"data: {json_payload_for_chunk_error}\n\n"
+                                    yield "data: [DONE]\n\n"
+                                    return
+                            yield "data: [DONE]\n\n"
+                        except Exception as stream_error:
+                            original_error_message = str(stream_error)
+                            if len(original_error_message) > 1024: original_error_message = original_error_message[:1024] + "..."
+                            error_msg_stream = f"Error during OpenAI client true streaming for {request.model}: {original_error_message}"
+                            vertex_log('error', error_msg_stream)
+                            error_response_content = create_openai_error_response(500, error_msg_stream, "server_error")
+                            json_payload_for_stream_error = json.dumps(error_response_content)
+                            yield f"data: {json_payload_for_stream_error}\n\n"
+                            yield "data: [DONE]\n\n"
+                    return StreamingResponse(openai_true_stream_generator(), media_type="text/event-stream")
+            else: # Not streaming (is_openai_direct_model and not request.stream)
                 try:
+                    # Ensure stream=False is explicitly passed for non-streaming
+                    openai_params_for_non_stream = {**openai_params, "stream": False}
                     response = await openai_client.chat.completions.create(
-                        **openai_params,
+                        **openai_params_for_non_stream,
+                        # Removed redundant **openai_params spread
                         extra_body=openai_extra_body
                     )
-                    return JSONResponse(content=response.model_dump(exclude_unset=True))
+                    response_dict = response.model_dump(exclude_unset=True, exclude_none=True)
+                    
+                    try:
+                        # Extract reasoning directly from the response
+                        choices = response_dict.get('choices')
+                        if choices and isinstance(choices, list) and len(choices) > 0:
+                            message_dict = choices[0].get('message')
+                            if message_dict and isinstance(message_dict, dict):
+                                # Always remove extra_content from the message if it exists
+                                if 'extra_content' in message_dict:
+                                    extra_content = message_dict.get('extra_content', {})
+                                    google_content = extra_content.get('google', {})
+                                    
+                                    # If this is a thought, move content to reasoning_content
+                                    if google_content and google_content.get('thought') is True:
+                                        message_dict['reasoning_content'] = message_dict.get('content', '')
+                                        message_dict['content'] = ''
+                                    
+                                    # Always remove extra_content
+                                    del message_dict['extra_content']
+                                    vertex_log('debug', "DEBUG: Processed 'extra_content' from response message.")
+                                    
+                    except Exception as e_reasoning_processing:
+                        vertex_log('warning', f"WARNING: Error during non-streaming reasoning processing for model {request.model} due to: {e_reasoning_processing}.")
+                        
+                    return JSONResponse(content=response_dict)
                 except Exception as generate_error:
                     error_msg_generate = f"Error calling OpenAI client for {request.model}: {str(generate_error)}"
                     vertex_log('error', error_msg_generate)
@@ -356,3 +436,214 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         error_msg = f"Unexpected error in chat_completions endpoint: {str(e)}"
         vertex_log('error', error_msg)
         return JSONResponse(status_code=500, content=create_openai_error_response(500, error_msg, "server_error"))
+
+async def _base_fake_stream_engine(
+    api_call_task_creator,
+    extract_text_from_response_func,
+    is_valid_response_func,
+    response_id,
+    sse_model_name,
+    keep_alive_interval_seconds=0,
+    is_auto_attempt=False,
+    reasoning_text_to_yield="",
+    actual_content_text_to_yield=""
+):
+    """Base engine for fake streaming that handles common logic for both Gemini and OpenAI."""
+    try:
+        # Wait for the API call to complete
+        api_response = await api_call_task_creator()
+        
+        # Validate the response
+        if not is_valid_response_func(api_response):
+            error_msg = f"Invalid response structure from API for model {sse_model_name}"
+            vertex_log('error', error_msg)
+            err_resp = create_openai_error_response(500, error_msg, "server_error")
+            yield f"data: {json.dumps(err_resp)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        
+        # Get the full text from the response
+        full_text = ""
+        if reasoning_text_to_yield or actual_content_text_to_yield:
+            # If we already have separated reasoning and content, use them
+            if reasoning_text_to_yield:
+                # First yield the reasoning content in a separate chunk
+                reasoning_chunk = {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": sse_model_name,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"reasoning_content": reasoning_text_to_yield},
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(reasoning_chunk)}\n\n"
+                
+            # Then use the actual content for streaming
+            full_text = actual_content_text_to_yield
+        else:
+            # Otherwise extract the full text from the response
+            full_text = extract_text_from_response_func(api_response)
+        
+        if not full_text:
+            # If there's no text to stream, just send an empty delta and finish
+            empty_chunk = {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": sse_model_name,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": ""},
+                    "finish_reason": "stop"
+                }]
+            }
+            yield f"data: {json.dumps(empty_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        
+        # Simulate streaming by yielding chunks of the full text
+        chunk_size = app_config.FAKE_STREAMING_CHUNK_SIZE
+        delay_per_chunk = app_config.FAKE_STREAMING_DELAY_PER_CHUNK
+        
+        # Initial chunk with role
+        initial_chunk = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": sse_model_name,
+            "choices": [{
+                "index": 0,
+                "delta": {"role": "assistant"},
+                "finish_reason": None
+            }]
+        }
+        yield f"data: {json.dumps(initial_chunk)}\n\n"
+        
+        # Stream the content in chunks
+        for i in range(0, len(full_text), chunk_size):
+            chunk_text = full_text[i:i+chunk_size]
+            content_chunk = {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": sse_model_name,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": chunk_text},
+                    "finish_reason": None
+                }]
+            }
+            yield f"data: {json.dumps(content_chunk)}\n\n"
+            
+            if i + chunk_size < len(full_text) and delay_per_chunk > 0:
+                await asyncio.sleep(delay_per_chunk)
+        
+        # Final chunk to indicate completion
+        final_chunk = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": sse_model_name,
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+            }]
+        }
+        yield f"data: {json.dumps(final_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+        
+    except Exception as e:
+        error_msg = f"Error in _base_fake_stream_engine for model {sse_model_name}: {str(e)}"
+        vertex_log('error', error_msg)
+        if not is_auto_attempt:  # Only yield error for non-auto attempts
+            err_resp = create_openai_error_response(500, error_msg, "server_error")
+            yield f"data: {json.dumps(err_resp)}\n\n"
+            yield "data: [DONE]\n\n"
+
+async def openai_fake_stream_generator(
+    openai_client: openai.AsyncOpenAI,
+    openai_params: Dict[str, Any], 
+    openai_extra_body: Dict[str, Any],
+    request_obj: OpenAIRequest,
+    is_auto_attempt: bool,
+    gcp_credentials: Any, 
+    gcp_project_id: str, 
+    gcp_location: str,
+    base_model_id_for_tokenizer: str 
+):
+    api_model_name = openai_params.get("model", "unknown-openai-model")
+    vertex_log('info', f"FAKE STREAMING (OpenAI): Prep for '{request_obj.model}' (API model: '{api_model_name}')")
+    response_id = f"chatcmpl-{int(time.time())}"
+    
+    async def _openai_api_call_wrapper():
+        params_for_non_stream_call = openai_params.copy()
+        params_for_non_stream_call['stream'] = False
+        
+        _api_call_task = asyncio.create_task(
+            openai_client.chat.completions.create(**params_for_non_stream_call, extra_body=openai_extra_body)
+        )
+        raw_response = await _api_call_task
+        
+        # Extract reasoning and content directly from the response
+        full_content_from_api = ""
+        reasoning_text = ""
+        
+        if raw_response.choices and raw_response.choices[0].message:
+            # Check for extra_content with google.thought
+            message = raw_response.choices[0].message
+            if hasattr(message, 'extra_content') and message.extra_content:
+                google_content = message.extra_content.get('google', {})
+                if google_content and google_content.get('thought') is True:
+                    reasoning_text = message.content
+                    full_content_from_api = ""  # Clear content as it's reasoning
+                else:
+                    full_content_from_api = message.content
+            else:
+                full_content_from_api = message.content
+        
+        return raw_response, reasoning_text, full_content_from_api
+
+    temp_task_for_keepalive_check = asyncio.create_task(_openai_api_call_wrapper())
+    outer_keep_alive_interval = app_config.FAKE_STREAMING_INTERVAL_SECONDS
+    if outer_keep_alive_interval > 0:
+        while not temp_task_for_keepalive_check.done():
+            keep_alive_data = {"id": "chatcmpl-keepalive", "object": "chat.completion.chunk", "created": int(time.time()), "model": request_obj.model, "choices": [{"delta": {"content": ""}, "index": 0, "finish_reason": None}]}
+            yield f"data: {json.dumps(keep_alive_data)}\n\n"
+            await asyncio.sleep(outer_keep_alive_interval)
+
+    try:
+        full_api_response, separated_reasoning_text, separated_actual_content_text = await temp_task_for_keepalive_check
+        def _extract_openai_full_text(response: Any) -> str: 
+            if response.choices and response.choices[0].message and response.choices[0].message.content is not None:
+                return response.choices[0].message.content
+            return ""
+        def _is_openai_response_valid(response: Any) -> bool:
+            return bool(response.choices and response.choices[0].message is not None)
+
+        async for chunk in _base_fake_stream_engine(
+            api_call_task_creator=lambda: asyncio.create_task(asyncio.sleep(0, result=full_api_response)), 
+            extract_text_from_response_func=_extract_openai_full_text, 
+            is_valid_response_func=_is_openai_response_valid,
+            response_id=response_id,
+            sse_model_name=request_obj.model,
+            keep_alive_interval_seconds=0, 
+            is_auto_attempt=is_auto_attempt,
+            reasoning_text_to_yield=separated_reasoning_text,
+            actual_content_text_to_yield=separated_actual_content_text
+        ):
+            yield chunk
+            
+    except Exception as e_outer: 
+        err_msg_detail = f"Error in openai_fake_stream_generator outer (model: '{request_obj.model}'): {type(e_outer).__name__} - {str(e_outer)}"
+        vertex_log('error', err_msg_detail)
+        sse_err_msg_display = str(e_outer)
+        if len(sse_err_msg_display) > 512: sse_err_msg_display = sse_err_msg_display[:512] + "..."
+        err_resp_sse = create_openai_error_response(500, sse_err_msg_display, "server_error")
+        json_payload_error = json.dumps(err_resp_sse)
+        if not is_auto_attempt:
+            yield f"data: {json_payload_error}\n\n"
+            yield "data: [DONE]\n\n"

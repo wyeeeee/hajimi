@@ -3,7 +3,7 @@ import re
 import json
 import time
 import urllib.parse
-from typing import List, Dict, Any, Union, Literal # Optional removed
+from typing import List, Dict, Any, Union, Literal, Tuple # Optional removed
 
 from google.genai import types
 from app.vertex.models import OpenAIMessage, ContentPartText, ContentPartImage # Changed from relative
@@ -336,6 +336,52 @@ def deobfuscate_text(text: str) -> str:
     text = text.replace(placeholder, "```")
     return text
 
+def parse_gemini_response_for_reasoning_and_content(gemini_response_candidate: Any) -> Tuple[str, str]:
+    """
+    Parses a Gemini response candidate's content parts to separate reasoning and actual content.
+    Reasoning is identified by parts having a 'thought': True attribute.
+    Typically used for the first candidate of a non-streaming response or a single streaming chunk's candidate.
+    """
+    reasoning_text_parts = []
+    normal_text_parts = []
+
+    # Check if gemini_response_candidate itself resembles a part_item with 'thought'
+    candidate_part_text = ""
+    is_candidate_itself_thought = False
+    if hasattr(gemini_response_candidate, 'text') and gemini_response_candidate.text is not None:
+        candidate_part_text = str(gemini_response_candidate.text)
+    if hasattr(gemini_response_candidate, 'thought') and gemini_response_candidate.thought is True:
+        is_candidate_itself_thought = True
+
+    # Primary logic: Iterate through parts of the candidate's content object
+    gemini_candidate_content = None
+    if hasattr(gemini_response_candidate, 'content'):
+        gemini_candidate_content = gemini_response_candidate.content
+
+    if gemini_candidate_content and hasattr(gemini_candidate_content, 'parts') and gemini_candidate_content.parts:
+        for part_item in gemini_candidate_content.parts:
+            part_text = ""
+            if hasattr(part_item, 'text') and part_item.text is not None:
+                part_text = str(part_item.text)
+            
+            if hasattr(part_item, 'thought') and part_item.thought is True:
+                reasoning_text_parts.append(part_text)
+            else:
+                normal_text_parts.append(part_text)
+    elif is_candidate_itself_thought:
+        reasoning_text_parts.append(candidate_part_text)
+    elif candidate_part_text:
+        normal_text_parts.append(candidate_part_text)
+    
+    # Fallback for older structure if candidate.content is just text
+    elif gemini_candidate_content and hasattr(gemini_candidate_content, 'text') and gemini_candidate_content.text is not None:
+        normal_text_parts.append(str(gemini_candidate_content.text))
+    # Fallback if no .content but direct .text on candidate
+    elif hasattr(gemini_response_candidate, 'text') and gemini_response_candidate.text is not None and not gemini_candidate_content:
+         normal_text_parts.append(str(gemini_response_candidate.text))
+
+    return "".join(reasoning_text_parts), "".join(normal_text_parts)
+
 def convert_to_openai_format(gemini_response, model: str) -> Dict[str, Any]:
     """Converts Gemini response to OpenAI format, applying deobfuscation if needed."""
     is_encrypt_full = model.endswith("-encrypt-full")
@@ -343,102 +389,59 @@ def convert_to_openai_format(gemini_response, model: str) -> Dict[str, Any]:
 
     if hasattr(gemini_response, 'candidates') and gemini_response.candidates:
         for i, candidate in enumerate(gemini_response.candidates):
-            content = ""
-            if hasattr(candidate, 'text'):
-                content = candidate.text or "" # Coalesce None to empty string
-            elif hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                # Ensure content remains a string even if parts have None text
-                parts_texts = []
-                for part_item in candidate.content.parts:
-                    if hasattr(part_item, 'text') and part_item.text is not None:
-                        parts_texts.append(part_item.text)
-                content = "".join(parts_texts)
-            
+            final_reasoning_content_str, final_normal_content_str = parse_gemini_response_for_reasoning_and_content(candidate)
+
             if is_encrypt_full:
-                content = deobfuscate_text(content)
+                final_reasoning_content_str = deobfuscate_text(final_reasoning_content_str)
+                final_normal_content_str = deobfuscate_text(final_normal_content_str)
 
-            choices.append({
-                "index": i,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop"
-            })
-    elif hasattr(gemini_response, 'text'):
-         content = gemini_response.text or "" # Coalesce None to empty string
-         if is_encrypt_full:
-             content = deobfuscate_text(content) # deobfuscate_text should also be robust to empty string
-         choices.append({
-             "index": 0,
-             "message": {"role": "assistant", "content": content},
-             "finish_reason": "stop"
-         })
-    else:
-         choices.append({
-             "index": 0,
-             "message": {"role": "assistant", "content": ""},
-             "finish_reason": "stop"
-         })
-
-    for i, choice in enumerate(choices):
-         if hasattr(gemini_response, 'candidates') and i < len(gemini_response.candidates):
-             candidate = gemini_response.candidates[i]
-             if hasattr(candidate, 'logprobs'):
-                 choice["logprobs"] = getattr(candidate, 'logprobs', None)
+            message_payload = {"role": "assistant", "content": final_normal_content_str}
+            if final_reasoning_content_str:
+                message_payload['reasoning_content'] = final_reasoning_content_str
+            
+            choice_item = {"index": i, "message": message_payload, "finish_reason": "stop"}
+            if hasattr(candidate, 'logprobs'):
+                 choice_item["logprobs"] = getattr(candidate, 'logprobs', None)
+            choices.append(choice_item)
+            
+    elif hasattr(gemini_response, 'text') and gemini_response.text is not None:
+         content_str = deobfuscate_text(gemini_response.text) if is_encrypt_full else (gemini_response.text or "")
+         choices.append({"index": 0, "message": {"role": "assistant", "content": content_str}, "finish_reason": "stop"})
+    else: 
+         choices.append({"index": 0, "message": {"role": "assistant", "content": ""}, "finish_reason": "stop"})
 
     return {
-        "id": f"chatcmpl-{int(time.time())}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": choices,
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        "id": f"chatcmpl-{int(time.time())}", "object": "chat.completion", "created": int(time.time()),
+        "model": model, "choices": choices,
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0} 
     }
 
 def convert_chunk_to_openai(chunk, model: str, response_id: str, candidate_index: int = 0) -> str:
     """Converts Gemini stream chunk to OpenAI format, applying deobfuscation if needed."""
     is_encrypt_full = model.endswith("-encrypt-full")
-    chunk_content_str = "" # Renamed for clarity and to ensure it's always a string
-
-    try:
-        if hasattr(chunk, 'parts') and chunk.parts:
-            current_parts_texts = []
-            for part_item in chunk.parts:
-                # Ensure part_item.text exists, is not None, and convert to string
-                if hasattr(part_item, 'text') and part_item.text is not None:
-                    current_parts_texts.append(str(part_item.text))
-            chunk_content_str = "".join(current_parts_texts)
-        elif hasattr(chunk, 'text') and chunk.text is not None:
-            # Ensure chunk.text is converted to string if it's not None
-            chunk_content_str = str(chunk.text)
-        # If chunk has neither .parts nor .text, or if .text is None, chunk_content_str remains ""
-    except Exception as e_chunk_extract:
-        # Log the error and the problematic chunk structure
-        vertex_log('warning', f"WARNING: Error extracting content from chunk in convert_chunk_to_openai: {e_chunk_extract}. Chunk type: {type(chunk)}. Chunk data: {str(chunk)[:200]}")
-        chunk_content_str = "" # Default to empty string in case of any error
-
-    if is_encrypt_full:
-        chunk_content_str = deobfuscate_text(chunk_content_str) # deobfuscate_text should handle empty string
-
-    if is_encrypt_full:
-        chunk_content = deobfuscate_text(chunk_content)
-
+    delta_payload = {}
     finish_reason = None 
-    # Actual finish reason handling would be more complex if Gemini provides it mid-stream
+
+    if hasattr(chunk, 'candidates') and chunk.candidates:
+        candidate = chunk.candidates[0] 
+        
+        # For a streaming chunk, candidate might be simpler, or might have candidate.content with parts.
+        reasoning_text, normal_text = parse_gemini_response_for_reasoning_and_content(candidate)
+
+        if is_encrypt_full:
+            reasoning_text = deobfuscate_text(reasoning_text)
+            normal_text = deobfuscate_text(normal_text)
+
+        if reasoning_text: delta_payload['reasoning_content'] = reasoning_text
+        if normal_text or (not reasoning_text and not delta_payload): # Ensure content key if nothing else
+            delta_payload['content'] = normal_text if normal_text else ""
 
     chunk_data = {
-        "id": response_id,
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "index": candidate_index,
-                "delta": {**({"content": chunk_content_str} if chunk_content_str else {})},
-                "finish_reason": finish_reason
-            }
-        ]
+        "id": response_id, "object": "chat.completion.chunk", "created": int(time.time()), "model": model,
+        "choices": [{"index": candidate_index, "delta": delta_payload, "finish_reason": finish_reason}]
     }
-    if hasattr(chunk, 'logprobs'):
-         chunk_data["choices"][0]["logprobs"] = getattr(chunk, 'logprobs', None)
+    if hasattr(chunk, 'candidates') and chunk.candidates and hasattr(chunk.candidates[0], 'logprobs'):
+         chunk_data["choices"][0]["logprobs"] = getattr(chunk.candidates[0], 'logprobs', None)
     return f"data: {json.dumps(chunk_data)}\n\n"
 
 def create_final_chunk(model: str, response_id: str, candidate_count: int = 1) -> str:
@@ -458,3 +461,55 @@ def create_final_chunk(model: str, response_id: str, candidate_count: int = 1) -
         "choices": choices
     }
     return f"data: {json.dumps(final_chunk)}\n\n"
+
+def split_text_by_completion_tokens(
+    gcp_credentials: Any,
+    gcp_project_id: str,
+    gcp_location: str,
+    model_id_for_tokenizer: str,
+    full_text: str,
+    num_completion_tokens: int
+) -> Tuple[str, str, List[str]]:
+    """
+    Split text into reasoning and actual content based on completion tokens.
+    
+    Args:
+        gcp_credentials: GCP credentials for tokenizer
+        gcp_project_id: GCP project ID
+        gcp_location: GCP location
+        model_id_for_tokenizer: Model ID for tokenizer
+        full_text: Full text to split
+        num_completion_tokens: Number of completion tokens
+        
+    Returns:
+        Tuple of (reasoning_text, actual_content, all_tokens)
+    """
+    try:
+        # Initialize tokenizer
+        tokenizer = genai.TextTokenizer(
+            credentials=gcp_credentials,
+            project=gcp_project_id,
+            location=gcp_location,
+            model=model_id_for_tokenizer
+        )
+        
+        # Get all tokens
+        all_tokens = tokenizer.encode(full_text)
+        
+        # If we have fewer tokens than completion_tokens, return empty reasoning
+        if len(all_tokens) <= num_completion_tokens:
+            return "", full_text, all_tokens
+            
+        # Split tokens into reasoning and content
+        reasoning_tokens = all_tokens[:num_completion_tokens]
+        content_tokens = all_tokens[num_completion_tokens:]
+        
+        # Decode tokens back to text
+        reasoning_text = tokenizer.decode(reasoning_tokens)
+        actual_content = tokenizer.decode(content_tokens)
+        
+        return reasoning_text, actual_content, all_tokens
+        
+    except Exception as e:
+        vertex_log('error', f"Error in split_text_by_completion_tokens: {str(e)}")
+        return "", full_text, []

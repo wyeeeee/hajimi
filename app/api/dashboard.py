@@ -278,7 +278,8 @@ async def update_config(config_data: dict):
             # 同步更新vertex配置中的假流式设置
             try:
                 import app.vertex.config as vertex_config
-                vertex_config.update_config('FAKE_STREAMING', config_value)
+                vertex_config.FAKE_STREAMING_ENABLED = config_value  # 直接更新全局变量
+                vertex_config.update_config('FAKE_STREAMING', config_value)  # 同时调用更新函数
                 log('info', f"已同步更新Vertex中的假流式设置为：{config_value}")
             except Exception as e:
                 log('warning', f"更新Vertex假流式设置时出错: {str(e)}")

@@ -81,6 +81,10 @@ def load_settings():
             current_api_keys = settings.GEMINI_API_KEYS.split(',') if settings.GEMINI_API_KEYS else []
             current_api_keys = [key.strip() for key in current_api_keys if key.strip()]
             
+            # 保存当前环境变量中的GOOGLE_CREDENTIALS_JSON和VERTEX_EXPRESS_API_KEY
+            current_google_credentials_json = settings.GOOGLE_CREDENTIALS_JSON if hasattr(settings, 'GOOGLE_CREDENTIALS_JSON') else ""
+            current_vertex_express_api_key = settings.VERTEX_EXPRESS_API_KEY if hasattr(settings, 'VERTEX_EXPRESS_API_KEY') else ""
+            
             # 更新settings模块中的变量，但排除特定配置项
             for name, value in loaded_settings.items():
                 if hasattr(settings, name) and name not in EXCLUDED_SETTINGS:
@@ -90,6 +94,18 @@ def load_settings():
                         loaded_api_keys = [key.strip() for key in loaded_api_keys if key.strip()]
                         all_keys = list(set(current_api_keys + loaded_api_keys))
                         setattr(settings, name, ','.join(all_keys))
+                    # 特殊处理GOOGLE_CREDENTIALS_JSON，如果当前环境变量中有值，则优先使用环境变量中的值
+                    elif name == "GOOGLE_CREDENTIALS_JSON":
+                        if not current_google_credentials_json:  # 只有当环境变量中没有值时才使用持久化的值
+                            setattr(settings, name, value)
+                            # 更新环境变量，确保其他模块能够访问到
+                            os.environ["GOOGLE_CREDENTIALS_JSON"] = value
+                    # 特殊处理VERTEX_EXPRESS_API_KEY，如果当前环境变量中有值，则优先使用环境变量中的值
+                    elif name == "VERTEX_EXPRESS_API_KEY":
+                        if not current_vertex_express_api_key:  # 只有当环境变量中没有值时才使用持久化的值
+                            setattr(settings, name, value)
+                            # 更新环境变量，确保其他模块能够访问到
+                            os.environ["VERTEX_EXPRESS_API_KEY"] = value
                     else:
                         setattr(settings, name, value)
             
@@ -121,6 +137,18 @@ def load_settings():
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
+                        # 确保app.vertex.config中的值已更新
+                        import app.vertex.config as app_config
+                        # 更新app_config中的GOOGLE_CREDENTIALS_JSON
+                        if hasattr(settings, 'GOOGLE_CREDENTIALS_JSON') and settings.GOOGLE_CREDENTIALS_JSON:
+                            app_config.GOOGLE_CREDENTIALS_JSON = settings.GOOGLE_CREDENTIALS_JSON
+                            log('info', "已更新app_config中的GOOGLE_CREDENTIALS_JSON")
+                        
+                        # 更新app_config中的VERTEX_EXPRESS_API_KEY_VAL
+                        if hasattr(settings, 'VERTEX_EXPRESS_API_KEY') and settings.VERTEX_EXPRESS_API_KEY:
+                            app_config.VERTEX_EXPRESS_API_KEY_VAL = [key.strip() for key in settings.VERTEX_EXPRESS_API_KEY.split(',') if key.strip()]
+                            log('info', f"已更新app_config中的VERTEX_EXPRESS_API_KEY_VAL，共{len(app_config.VERTEX_EXPRESS_API_KEY_VAL)}个有效密钥")
+                        
                         success = loop.run_until_complete(init_vertex_ai(credential_manager=credential_manager))
                         if success:
                             log('info', "成功初始化Vertex AI服务")
