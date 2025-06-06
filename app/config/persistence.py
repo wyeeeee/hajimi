@@ -78,8 +78,10 @@ def load_settings():
                 loaded_settings = json.load(f)
             
             # 保存当前环境变量中的GEMINI_API_KEYS
-            current_api_keys = settings.GEMINI_API_KEYS.split(',') if settings.GEMINI_API_KEYS else []
-            current_api_keys = [key.strip() for key in current_api_keys if key.strip()]
+            current_api_keys = []
+            if hasattr(settings, 'GEMINI_API_KEYS') and settings.GEMINI_API_KEYS:
+                current_api_keys = settings.GEMINI_API_KEYS.split(',')
+                current_api_keys = [key.strip() for key in current_api_keys if key.strip()]
             
             # 保存当前环境变量中的GOOGLE_CREDENTIALS_JSON和VERTEX_EXPRESS_API_KEY
             current_google_credentials_json = settings.GOOGLE_CREDENTIALS_JSON if hasattr(settings, 'GOOGLE_CREDENTIALS_JSON') else ""
@@ -96,16 +98,31 @@ def load_settings():
                         setattr(settings, name, ','.join(all_keys))
                     # 特殊处理GOOGLE_CREDENTIALS_JSON，如果当前环境变量中有值，则优先使用环境变量中的值
                     elif name == "GOOGLE_CREDENTIALS_JSON":
-                        if not current_google_credentials_json:  # 只有当环境变量中没有值时才使用持久化的值
+                        # 检查当前值是否为空（None、空字符串、只有空白字符，或者是"''"这样的空引号）
+                        is_empty = (not current_google_credentials_json or 
+                                   not current_google_credentials_json.strip() or 
+                                   current_google_credentials_json.strip() in ['""', "''"])
+                        log('debug', f"is_empty检查结果: {is_empty}")
+                        if is_empty:
+                            log('debug', f"当前GOOGLE_CREDENTIALS_JSON为空，将使用持久化的值")
                             setattr(settings, name, value)
                             # 更新环境变量，确保其他模块能够访问到
-                            os.environ["GOOGLE_CREDENTIALS_JSON"] = value
+                            if value:  # 只有当value不为空时才设置环境变量
+                                os.environ["GOOGLE_CREDENTIALS_JSON"] = value
+                                log('info', f"从持久化存储加载了GOOGLE_CREDENTIALS_JSON配置")
+                            else:
+                                log('warning', f"持久化的GOOGLE_CREDENTIALS_JSON值为空")
+                        else:
+                            log('debug', f"当前GOOGLE_CREDENTIALS_JSON不为空，保持现有值")
                     # 特殊处理VERTEX_EXPRESS_API_KEY，如果当前环境变量中有值，则优先使用环境变量中的值
                     elif name == "VERTEX_EXPRESS_API_KEY":
-                        if not current_vertex_express_api_key:  # 只有当环境变量中没有值时才使用持久化的值
+                        # 检查当前值是否为空（None、空字符串或只有空白字符）
+                        if not current_vertex_express_api_key or not current_vertex_express_api_key.strip():
                             setattr(settings, name, value)
                             # 更新环境变量，确保其他模块能够访问到
-                            os.environ["VERTEX_EXPRESS_API_KEY"] = value
+                            if value:  # 只有当value不为空时才设置环境变量
+                                os.environ["VERTEX_EXPRESS_API_KEY"] = value
+                                log('info', f"从持久化存储加载了VERTEX_EXPRESS_API_KEY配置")
                     else:
                         setattr(settings, name, value)
             
@@ -114,62 +131,32 @@ def load_settings():
                 # 如果加载了Google Credentials JSON或Vertex Express API Key，需要刷新模型配置
                 if (hasattr(settings, 'GOOGLE_CREDENTIALS_JSON') and settings.GOOGLE_CREDENTIALS_JSON) or \
                    (hasattr(settings, 'VERTEX_EXPRESS_API_KEY') and settings.VERTEX_EXPRESS_API_KEY):
-                    log('info', "检测到Google Credentials JSON或Vertex Express API Key，准备刷新模型配置")
+                    log('info', "检测到Google Credentials JSON或Vertex Express API Key，准备更新配置")
                     
-                    # 导入必要的模块
-                    from app.vertex.model_loader import refresh_models_config_cache
-                    from app.vertex.vertex_ai_init import init_vertex_ai
-                    from app.vertex.credentials_manager import CredentialManager
+                    # 更新配置
+                    import app.vertex.config as app_config
                     
-                    # 创建新的CredentialManager实例
-                    credential_manager = CredentialManager()
+                    # 重新加载vertex配置
+                    app_config.reload_config()
                     
-                    # 如果有Google Credentials JSON，加载到CredentialManager
+                    # 更新app_config中的GOOGLE_CREDENTIALS_JSON
                     if hasattr(settings, 'GOOGLE_CREDENTIALS_JSON') and settings.GOOGLE_CREDENTIALS_JSON:
-                        from app.vertex.credentials_manager import parse_multiple_json_credentials
-                        parsed_json_objects = parse_multiple_json_credentials(settings.GOOGLE_CREDENTIALS_JSON)
-                        if parsed_json_objects:
-                            loaded_count = credential_manager.load_credentials_from_json_list(parsed_json_objects)
-                            log('info', f"从持久化的Google Credentials JSON中加载了{loaded_count}个凭据")
+                        app_config.GOOGLE_CREDENTIALS_JSON = settings.GOOGLE_CREDENTIALS_JSON
+                        # 同时更新环境变量，确保其他模块能够访问到
+                        os.environ["GOOGLE_CREDENTIALS_JSON"] = settings.GOOGLE_CREDENTIALS_JSON
+                        log('info', "已更新app_config和环境变量中的GOOGLE_CREDENTIALS_JSON")
                     
-                    # 初始化Vertex AI
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        # 确保app.vertex.config中的值已更新
-                        import app.vertex.config as app_config
-                        # 更新app_config中的GOOGLE_CREDENTIALS_JSON
-                        if hasattr(settings, 'GOOGLE_CREDENTIALS_JSON') and settings.GOOGLE_CREDENTIALS_JSON:
-                            app_config.GOOGLE_CREDENTIALS_JSON = settings.GOOGLE_CREDENTIALS_JSON
-                            log('info', "已更新app_config中的GOOGLE_CREDENTIALS_JSON")
-                        
-                        # 更新app_config中的VERTEX_EXPRESS_API_KEY_VAL
-                        if hasattr(settings, 'VERTEX_EXPRESS_API_KEY') and settings.VERTEX_EXPRESS_API_KEY:
-                            app_config.VERTEX_EXPRESS_API_KEY_VAL = [key.strip() for key in settings.VERTEX_EXPRESS_API_KEY.split(',') if key.strip()]
-                            log('info', f"已更新app_config中的VERTEX_EXPRESS_API_KEY_VAL，共{len(app_config.VERTEX_EXPRESS_API_KEY_VAL)}个有效密钥")
-                        
-                        success = loop.run_until_complete(init_vertex_ai(credential_manager=credential_manager))
-                        if success:
-                            log('info', "成功初始化Vertex AI服务")
-                        else:
-                            log('warning', "初始化Vertex AI服务失败")
-                    finally:
-                        loop.close()
+                    # 更新app_config中的VERTEX_EXPRESS_API_KEY_VAL
+                    if hasattr(settings, 'VERTEX_EXPRESS_API_KEY') and settings.VERTEX_EXPRESS_API_KEY:
+                        app_config.VERTEX_EXPRESS_API_KEY_VAL = [key.strip() for key in settings.VERTEX_EXPRESS_API_KEY.split(',') if key.strip()]
+                        # 同时更新环境变量
+                        os.environ["VERTEX_EXPRESS_API_KEY"] = settings.VERTEX_EXPRESS_API_KEY
+                        log('info', f"已更新app_config和环境变量中的VERTEX_EXPRESS_API_KEY_VAL，共{len(app_config.VERTEX_EXPRESS_API_KEY_VAL)}个有效密钥")
                     
-                    # 刷新模型配置缓存
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        refresh_success = loop.run_until_complete(refresh_models_config_cache())
-                        if refresh_success:
-                            log('info', "成功刷新模型配置缓存")
-                        else:
-                            log('warning', "刷新模型配置缓存失败")
-                    finally:
-                        loop.close()
+                    log('info', "配置更新完成，Vertex AI将在下次请求时重新初始化")
+                    
             except Exception as e:
-                log('error', f"刷新模型配置时出错: {str(e)}")
+                log('error', f"更新配置时出错: {str(e)}")
             
             log('info', f"加载设置成功")
             return True

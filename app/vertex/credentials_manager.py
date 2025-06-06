@@ -15,6 +15,11 @@ def parse_multiple_json_credentials(json_str: str) -> List[Dict[str, Any]]:
     Format expected: {json_object1},{json_object2},...
     Returns a list of parsed JSON objects.
     """
+    # 检查输入是否为None或空字符串
+    if not json_str or not json_str.strip():
+        vertex_log('debug', "parse_multiple_json_credentials received empty or None input")
+        return []
+    
     credentials_list = []
     nesting_level = 0
     current_object_start = -1

@@ -41,7 +41,8 @@ async def init_vertex_ai(credential_manager=None) -> bool: # Made async
         credentials_json_str = app_config.GOOGLE_CREDENTIALS_JSON
         env_creds_loaded_into_manager = False
 
-        if credentials_json_str:
+        # 更严格的检查：确保不为None、不为空字符串、且去除空白后不为空
+        if credentials_json_str and credentials_json_str.strip():
             vertex_log('info', "Found GOOGLE_CREDENTIALS_JSON environment variable. Attempting to load into CredentialManager.")
             try:
                 # Attempt 1: Parse as multiple JSON objects
@@ -77,7 +78,7 @@ async def init_vertex_ai(credential_manager=None) -> bool: # Made async
                 # This catches errors from parse_multiple_json_credentials or load_credentials_from_json_list
                 vertex_log('warning', f"Error processing GOOGLE_CREDENTIALS_JSON env var: {e_json_env}.")
         else:
-            vertex_log('info', "GOOGLE_CREDENTIALS_JSON environment variable not found.")
+            vertex_log('info', "GOOGLE_CREDENTIALS_JSON environment variable not found, is empty, or contains only whitespace.")
 
         # Attempt to pre-warm the model configuration cache
         vertex_log('info', "Attempting to pre-warm model configuration cache during startup...")

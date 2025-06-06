@@ -98,13 +98,16 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         elif is_grounded_search: base_model_name = base_model_name[:-len("-search")]
         elif is_encrypted_full_model: base_model_name = base_model_name[:-len("-encrypt-full")] # Must be before -encrypt
         elif is_encrypted_model: base_model_name = base_model_name[:-len("-encrypt")]
-        elif is_nothinking_model: base_model_name = base_model_name[:-len("-nothinking")]
-        elif is_max_thinking_model: base_model_name = base_model_name[:-len("-max")]
+        elif is_nothinking_model:
+            base_model_name = base_model_name[:-len("-nothinking")]
+        elif is_max_thinking_model:
+            base_model_name = base_model_name[:-len("-max")]
         
         # Define supported models for these specific variants
         supported_flash_variants = [
             "gemini-2.5-flash-preview-04-17",
-            "gemini-2.5-flash-preview-05-20"
+            "gemini-2.5-flash-preview-05-20",
+            "gemini-2.5-pro-preview-06-05"
         ]
         supported_flash_variants_str = "' or '".join(supported_flash_variants)
 
@@ -418,9 +421,17 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
                 generation_config["system_instruction"] = encryption_instructions_placeholder
                 current_prompt_func = create_encrypted_full_gemini_prompt
             elif is_nothinking_model:
-                generation_config["thinking_config"] = {"thinking_budget": 0}
+                # 为gemini-2.5-pro-preview-06-05设置特定的thinking_budget
+                if base_model_name == "gemini-2.5-pro-preview-06-05":
+                    generation_config["thinking_config"] = {"thinking_budget": 128}
+                else:
+                    generation_config["thinking_config"] = {"thinking_budget": 0}
             elif is_max_thinking_model:
-                generation_config["thinking_config"] = {"thinking_budget": 24576}
+                # 为gemini-2.5-pro-preview-06-05设置特定的thinking_budget
+                if base_model_name == "gemini-2.5-pro-preview-06-05":
+                    generation_config["thinking_config"] = {"thinking_budget": 32768}
+                else:
+                    generation_config["thinking_config"] = {"thinking_budget": 24576}
             
             # For non-auto models, the 'base_model_name' might have suffix stripped.
             # We should use the original 'request.model' for API call if it's a suffixed one,

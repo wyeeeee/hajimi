@@ -261,6 +261,25 @@ async def list_models(fastapi_request: Request, api_key: str = Depends(get_api_k
                         "permission": [], "root": base_model_without_prefix, "parent": None
                     })
 
+        # Apply special suffixes for gemini-2.5-pro-preview-06-05
+        if base_model_without_prefix == "gemini-2.5-pro-preview-06-05":
+            special_pro_suffixes = ["-nothinking", "-max"]
+            for special_suffix in special_pro_suffixes:
+                suffixed_model_part = f"{base_model_without_prefix}{special_suffix}"
+                # Retain EXPRESS prefix if original model had it
+                if is_express_model:
+                    final_special_suffixed_display_id = f"[EXPRESS] {suffixed_model_part}"
+                else:
+                    # 非EXPRESS模型的特殊后缀版本也需要正确显示PAY前缀
+                    final_special_suffixed_display_id = f"{current_display_prefix}{suffixed_model_part}"
+
+                if final_special_suffixed_display_id not in all_model_ids and not any(m['id'] == final_special_suffixed_display_id for m in dynamic_models_data):
+                    vertex_log('info', f"添加gemini-2.5-pro-preview-06-05特殊后缀模型到列表: {final_special_suffixed_display_id}")
+                    dynamic_models_data.append({
+                        "id": final_special_suffixed_display_id, "object": "model", "created": current_time, "owned_by": "google",
+                        "permission": [], "root": base_model_without_prefix, "parent": None
+                    })
+
         # Ensure uniqueness again after adding suffixes
         # Add OpenAI direct variations if SA creds are available
         if has_sa_creds: # OpenAI direct mode only works with SA credentials

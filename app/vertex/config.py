@@ -29,7 +29,7 @@ PROJECT_ID = os.environ.get('VERTEX_PROJECT_ID', '')
 LOCATION = os.environ.get('VERTEX_LOCATION', 'us-central1')
 
 # 模型配置URL
-default_models_config_url = "https://gist.githubusercontent.com/gzzhongqi/e0b684f319437a859bcf5bd6203fd1f6/raw"
+default_models_config_url = "https://raw.githubusercontent.com/gzzhongqi/vertex2openai/refs/heads/main/vertexModels.json"
 MODELS_CONFIG_URL = os.environ.get('VERTEX_MODELS_CONFIG_URL', default_models_config_url)
 vertex_log('info', f"Using models config URL: {MODELS_CONFIG_URL}")
 
@@ -51,6 +51,27 @@ def update_env_var(name, value):
     """Update environment variable in memory."""
     os.environ[name] = value
     vertex_log('info', f"Updated environment variable: {name}")
+
+def reload_config():
+    """重新加载配置，通常在持久化设置加载后调用"""
+    global GOOGLE_CREDENTIALS_JSON, VERTEX_EXPRESS_API_KEY_VAL, API_KEY
+    
+    # 重新加载Google Credentials JSON
+    GOOGLE_CREDENTIALS_JSON = settings.GOOGLE_CREDENTIALS_JSON if hasattr(settings, 'GOOGLE_CREDENTIALS_JSON') else ""
+    if GOOGLE_CREDENTIALS_JSON:
+        vertex_log('info', "重新加载了GOOGLE_CREDENTIALS_JSON配置")
+    
+    # 重新加载Vertex Express API Key
+    VERTEX_EXPRESS_API_KEY_VAL = []
+    if hasattr(settings, 'VERTEX_EXPRESS_API_KEY') and settings.VERTEX_EXPRESS_API_KEY:
+        VERTEX_EXPRESS_API_KEY_VAL = [key.strip() for key in settings.VERTEX_EXPRESS_API_KEY.split(',') if key.strip()]
+        if VERTEX_EXPRESS_API_KEY_VAL:
+            vertex_log('info', f"重新加载了{len(VERTEX_EXPRESS_API_KEY_VAL)}个Vertex Express API keys")
+    
+    # 重新加载API Key
+    API_KEY = settings.PASSWORD if hasattr(settings, 'PASSWORD') else ""
+    if API_KEY:
+        vertex_log('info', "重新加载了API Key配置")
 
 def update_config(name, value):
     """Update config variables in settings and environment variables."""

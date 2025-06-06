@@ -141,4 +141,4 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
 - 选择`自定义（兼容OpenAI）`
 - 填写链接与密钥：
   - huggingface链接：`https://你的huggingface用户名-你的空间名.hf.space/v1`，示例：https://tt335-hiiijimi.hf.space/v1
-  - 密钥：你的`huggingface token`编码
+  - 密钥：你的设置的`PASSWORD`
