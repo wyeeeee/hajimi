@@ -11,6 +11,8 @@ from .nonstream_handlers import process_request
 from app.models.schemas import ChatCompletionRequest, ChatCompletionResponse, ModelList, AIRequest, ChatRequestGemini
 import app.config.settings as settings
 import asyncio
+from app.vertex.routes import chat_api, models_api
+from app.vertex.models import OpenAIRequest, OpenAIMessage
 
 # 创建路由器
 router = APIRouter()
@@ -100,24 +102,20 @@ async def aistudio_list_models(_ = Depends(custom_verify_password),
     return ModelList(data=[{"id": model, "object": "model", "created": 1678888888, "owned_by": "organization-owner"} for model in filtered_models])
 
 @router.get("/vertex/models",response_model=ModelList)
-async def vertex_list_models(_ = Depends(custom_verify_password),
+async def vertex_list_models(request: Request, 
+                             _ = Depends(custom_verify_password),
                              _2 = Depends(verify_user_agent)):
-    # 使用Vertex AI实现
-    from app.vertex.vertex import list_models as vertex_list_models
-    
-    # 调用Vertex AI实现
-    vertex_response = await vertex_list_models(api_key=current_api_key)
-    
-    # 转换为ModelList格式
-    return ModelList(data=vertex_response.get("data", []))
+    # 使用vertex/routes/models_api的实现
+    return await models_api.list_models(request, current_api_key)
 
 # API路由
 @router.get("/v1/models",response_model=ModelList)
 @router.get("/models",response_model=ModelList)
-async def list_models(_ = Depends(custom_verify_password),
+async def list_models(request: Request,
+                      _ = Depends(custom_verify_password),
                       _2 = Depends(verify_user_agent)):
     if settings.ENABLE_VERTEX:
-        return await vertex_list_models(_, _2)
+        return await vertex_list_models(request, _, _2)
     return await aistudio_list_models(_, _2)
 
 @router.post("/aistudio/chat/completions", response_model=ChatCompletionResponse)
@@ -254,10 +252,7 @@ async def vertex_chat_completions(
     _dp = Depends(custom_verify_password),
     _du = Depends(verify_user_agent),
     ):
-
-    # 使用Vertex AI实现
-    from app.vertex.vertex import chat_completions as vertex_chat_completions
-    from app.vertex.vertex import OpenAIRequest, OpenAIMessage, get_api_key
+    # 使用vertex/routes/chat_api的实现
     
     # 转换消息格式
     openai_messages = []
@@ -285,8 +280,8 @@ async def vertex_chat_completions(
         n=request.n
     )
     
-    # 调用Vertex AI实现
-    return await vertex_chat_completions(vertex_request, api_key=current_api_key)
+    # 调用vertex/routes/chat_api的实现
+    return await chat_api.chat_completions(http_request, vertex_request, current_api_key)
 
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
@@ -298,8 +293,8 @@ async def chat_completions(
 ):
     """处理API请求的主函数，根据需要处理流式或非流式请求"""
     if settings.ENABLE_VERTEX:
-        return await vertex_chat_completions(request, http_request)
-    return await aistudio_chat_completions(request, http_request)
+        return await vertex_chat_completions(request, http_request, _dp, _du)
+    return await aistudio_chat_completions(request, http_request, _dp, _du)
 
 @router.post("/gemini/{api_version:str}/models/{model_and_responseType:path}")
 async def gemini_chat_completions(
@@ -322,5 +317,5 @@ async def gemini_chat_completions(
         raise HTTPException(status_code=400, detail="无效的请求路径")
     
     geminiRequest = AIRequest(payload=payload,model=model_name,stream=is_stream,format_type='gemini')
-    return await aistudio_chat_completions(geminiRequest, request)
+    return await aistudio_chat_completions(geminiRequest, request, _dp, _du)
         

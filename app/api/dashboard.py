@@ -11,6 +11,7 @@ from app.utils import (
     clean_expired_stats
 )
 import app.config.settings as settings
+import app.vertex.config as app_config
 from app.services import GeminiClient
 from app.utils.auth import verify_web_password
 from app.utils.maintenance import api_call_stats_clean
@@ -21,10 +22,10 @@ from typing import List
 import json
 
 # Import necessary components for Google Credentials JSON update
-from app.vertex.vertex import credential_manager as global_credential_manager, \
-    parse_multiple_json_credentials, \
-    init_vertex_ai as re_init_vertex_ai_function, \
-    reset_global_fallback_client
+from app.vertex.credentials_manager import CredentialManager, parse_multiple_json_credentials
+
+# 引入重新初始化vertex的函数
+from app.vertex.vertex_ai_init import init_vertex_ai as re_init_vertex_ai_function, reset_global_fallback_client
 
 # 创建路由器
 dashboard_router = APIRouter(prefix="/api", tags=["dashboard"])
@@ -33,6 +34,7 @@ dashboard_router = APIRouter(prefix="/api", tags=["dashboard"])
 key_manager = None
 response_cache_manager = None
 active_requests_manager = None
+credential_manager = None  # 添加全局credential_manager变量
 
 # 用于存储API密钥检测的进度信息
 api_key_test_progress = {
@@ -47,20 +49,37 @@ api_key_test_progress = {
 def init_dashboard_router(
     key_mgr,
     cache_mgr,
-    active_req_mgr
+    active_req_mgr,
+    cred_mgr=None  # 添加credential_manager参数
 ):
     """初始化仪表盘路由器"""
-    global key_manager, response_cache_manager, active_requests_manager
+    global key_manager, response_cache_manager, active_requests_manager, credential_manager
     key_manager = key_mgr
     response_cache_manager = cache_mgr
     active_requests_manager = active_req_mgr
+    credential_manager = cred_mgr  # 保存credential_manager
     return dashboard_router
 
 async def run_blocking_init_vertex():
-    """Helper to run the blocking init_vertex_ai function in an executor."""
-    loop = asyncio.get_event_loop()
+    """Helper to run the init_vertex_ai function with the current credential_manager."""
     try:
-        success = await loop.run_in_executor(None, re_init_vertex_ai_function)
+        if credential_manager is None:
+            # 如果credential_manager为None，记录警告并创建一个新的实例
+            log('warning', "Credential Manager不存在，将创建一个新的实例用于初始化")
+            temp_credential_manager = CredentialManager()
+            credentials_count = temp_credential_manager.get_total_credentials()
+            log('info', f"临时Credential Manager已创建，包含{credentials_count}个凭证")
+            
+            # 传递临时创建的credential_manager实例
+            success = await re_init_vertex_ai_function(credential_manager=temp_credential_manager)
+        else:
+            # 记录当前有多少凭证可用
+            credentials_count = credential_manager.get_total_credentials()
+            log('info', f"使用现有Credential Manager进行初始化，当前有{credentials_count}个凭证")
+            
+            # 传递当前的credential_manager实例
+            success = await re_init_vertex_ai_function(credential_manager=credential_manager)
+        
         if success:
             log('info', "异步重新执行 init_vertex_ai 成功，以响应 Google Credentials JSON 的更新。")
         else:
@@ -103,12 +122,18 @@ async def get_dashboard_data():
     active_count = len(active_requests_manager.active_requests)
     active_done = sum(1 for task in active_requests_manager.active_requests.values() if task.done())
     active_pending = active_count - active_done
+
+    # 获取凭证数量
+    credentials_count = 0
+    if credential_manager is not None:
+        credentials_count = credential_manager.get_total_credentials()
     
     # 返回JSON格式的数据
     return {
         "key_count": len(key_manager.api_keys),
         "model_count": len(GeminiClient.AVAILABLE_MODELS),
         "retry_count": settings.MAX_RETRY_NUM,
+        "credentials_count": credentials_count,  # 添加凭证数量
         "last_24h_calls": last_24h_calls,
         "hourly_calls": hourly_calls,
         "minute_calls": minute_calls,
@@ -250,6 +275,15 @@ async def update_config(config_data: dict):
             settings.FAKE_STREAMING = config_value
             log('info', f"假流式请求已更新为：{config_value}")
             
+            # 同步更新vertex配置中的假流式设置
+            try:
+                import app.vertex.config as vertex_config
+                vertex_config.FAKE_STREAMING_ENABLED = config_value  # 直接更新全局变量
+                vertex_config.update_config('FAKE_STREAMING', config_value)  # 同时调用更新函数
+                log('info', f"已同步更新Vertex中的假流式设置为：{config_value}")
+            except Exception as e:
+                log('warning', f"更新Vertex假流式设置时出错: {str(e)}")
+            
         elif config_key == "enable_vertex_express":
             if not isinstance(config_value, bool):
                 raise HTTPException(status_code=422, detail="参数类型错误：应为布尔值")
@@ -259,8 +293,26 @@ async def update_config(config_data: dict):
         elif config_key == "vertex_express_api_key":
             if not isinstance(config_value, str):
                 raise HTTPException(status_code=422, detail="参数类型错误：应为字符串")
-            settings.VERTEX_EXPRESS_API_KEY = config_value
-            log('info', f"Vertex Express API Key已更新")
+            
+            # 检查是否为空字符串或"true"，如果是，则不更新
+            if not config_value or config_value.lower() == "true":
+                log('info', f"Vertex Express API Key未更新，因为值为空或为'true'")
+            else:
+                settings.VERTEX_EXPRESS_API_KEY = config_value
+                # 更新app_config中的API密钥列表
+                app_config.VERTEX_EXPRESS_API_KEY_VAL = [key.strip() for key in config_value.split(',') if key.strip()]
+                log('info', f"Vertex Express API Key已更新，共{len(app_config.VERTEX_EXPRESS_API_KEY_VAL)}个有效密钥")
+                
+                # 尝试刷新模型配置
+                try:
+                    from app.vertex.model_loader import refresh_models_config_cache
+                    refresh_success = await refresh_models_config_cache()
+                    if refresh_success:
+                        log('info', "更新Express API Key后成功刷新模型配置")
+                    else:
+                        log('warning', "更新Express API Key后刷新模型配置失败，将使用默认模型或现有缓存")
+                except Exception as e:
+                    log('warning', f"尝试刷新模型配置时出错: {str(e)}")
             
         elif config_key == "fake_streaming_interval":
             try:
@@ -269,6 +321,14 @@ async def update_config(config_data: dict):
                     raise ValueError("假流式间隔必须大于0")
                 settings.FAKE_STREAMING_INTERVAL = value
                 log('info', f"假流式间隔已更新为：{value}")
+                
+                # 同步更新vertex配置中的假流式间隔设置
+                try:
+                    import app.vertex.config as vertex_config
+                    vertex_config.update_config('FAKE_STREAMING_INTERVAL', value)
+                    log('info', f"已同步更新Vertex中的假流式间隔设置为：{value}")
+                except Exception as e:
+                    log('warning', f"更新Vertex假流式间隔设置时出错: {str(e)}")
             except ValueError as e:
                 raise HTTPException(status_code=422, detail=f"参数类型错误：{str(e)}")
                 
@@ -351,6 +411,12 @@ async def update_config(config_data: dict):
             if not isinstance(config_value, str): # Allow empty string to clear
                 raise HTTPException(status_code=422, detail="参数类型错误：Google Credentials JSON 应为字符串")
 
+            # 检查是否为空字符串或"true"，如果是，则不更新
+            if not config_value or config_value.lower() == "true":
+                log('info', f"Google Credentials JSON未更新，因为值为空或为'true'")
+                save_settings() # 仍然保存其他可能的设置更改
+                return {"status": "success", "message": f"配置项 {config_key} 未更新，值为空或为'true'"}
+
             # Validate JSON structure if not empty
             if config_value:
                 try:
@@ -385,31 +451,63 @@ async def update_config(config_data: dict):
             reset_global_fallback_client()
 
             # Clear previously loaded JSON string credentials from manager
-            cleared_count = global_credential_manager.clear_json_string_credentials()
-            log('info', f"从 CredentialManager 中清除了 {cleared_count} 个先前由 JSON 字符串加载的凭据。")
+            if credential_manager is not None:
+                cleared_count = credential_manager.clear_json_string_credentials()
+                log('info', f"从 CredentialManager 中清除了 {cleared_count} 个先前由 JSON 字符串加载的凭据。")
 
-            if config_value: # If new JSON string is provided
-                parsed_json_objects = parse_multiple_json_credentials(config_value)
-                if parsed_json_objects:
-                    loaded_count = global_credential_manager.load_credentials_from_json_list(parsed_json_objects)
-                    log('info', f"从更新的 Google Credentials JSON 中加载了 {loaded_count} 个凭据到 CredentialManager。")
+                if config_value: # If new JSON string is provided
+                    parsed_json_objects = parse_multiple_json_credentials(config_value)
+                    if parsed_json_objects:
+                        loaded_count = credential_manager.load_credentials_from_json_list(parsed_json_objects)
+                        if loaded_count > 0:
+                            log('info', f"从更新的 Google Credentials JSON 中加载了 {loaded_count} 个凭据到 CredentialManager。")
+                        else:
+                            log('warning', "尝试加载Google Credentials JSON凭据失败，没有凭据被成功加载。")
+                    else:
+                        # 尝试作为单个JSON对象加载
+                        try:
+                            single_cred = json.loads(config_value)
+                            if credential_manager.add_credential_from_json(single_cred):
+                                log('info', "作为单个JSON对象成功加载了一个凭据。")
+                            else:
+                                log('warning', "作为单个JSON对象加载凭据失败。")
+                        except json.JSONDecodeError:
+                            log('warning', "Google Credentials JSON无法作为JSON对象解析。")
+                        except Exception as e:
+                            log('warning', f"尝试加载单个JSON凭据时出错: {str(e)}")
                 else:
-                    # This log implies that parse_multiple_json_credentials returned empty for a non-empty string.
-                    # The earlier validation (json.loads) would have caught if it wasn't even a single valid JSON.
-                    # So this means it might be a single valid JSON but not fitting the "multiple" parser's expectation,
-                    # or it was truly empty/invalid and the pre-check logic needs review if that's unexpected here.
-                    # However, load_credentials_from_json_list expects a list of dicts, so if parsed_json_objects is empty,
-                    # it correctly loads zero.
-                    log('info', "更新的 Google Credentials JSON 解析后未产生可加载的多对象列表，或者内容本身无法解析为有效凭据结构，未加载任何新凭据到 CredentialManager。")
+                    log('info', "Google Credentials JSON 已被清空。CredentialManager 中来自 JSON 字符串的凭据已被移除。")
+                
+                # 检查凭证是否存在
+                if credential_manager.get_total_credentials() == 0:
+                    log('warning', "警告：当前没有可用的凭证。Vertex AI功能可能无法正常工作。")
             else:
-                log('info', "Google Credentials JSON 已被清空。CredentialManager 中来自 JSON 字符串的凭据已被移除。")
+                log('warning', "CredentialManager未初始化，无法加载Google Credentials JSON。")
             
             # Save all settings changes
             save_settings() # Moved save_settings here to ensure it's called for this key
 
             # Trigger re-initialization of Vertex AI (which can re-init the global client)
-            asyncio.create_task(run_blocking_init_vertex())
-            log('info', "已安排 Vertex AI 服务重新初始化以应用 Google Credentials JSON 更改。")
+            try:
+                # 检查credential_manager是否可用
+                if credential_manager is None:
+                    log('warning', "重新初始化Vertex AI时发现credential_manager为None")
+                else:
+                    log('info', f"开始重新初始化Vertex AI，当前凭证数: {credential_manager.get_total_credentials()}")
+                
+                # 调用run_blocking_init_vertex
+                await run_blocking_init_vertex()
+                log('info', "Vertex AI服务重新初始化完成")
+                
+                # 显式刷新模型配置缓存
+                from app.vertex.model_loader import refresh_models_config_cache
+                refresh_success = await refresh_models_config_cache()
+                if refresh_success:
+                    log('info', "成功刷新模型配置缓存")
+                else:
+                    log('warning', "刷新模型配置缓存失败，将使用默认模型或现有缓存")
+            except Exception as e:
+                log('error', f"重新初始化Vertex AI服务时出错: {str(e)}")
         
         elif config_key == "max_retry_num":
             try:

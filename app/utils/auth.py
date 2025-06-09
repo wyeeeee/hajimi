@@ -10,8 +10,7 @@ async def custom_verify_password(
     alt: Optional[str] = None
 ):
     """
-    校验 API Key。
-    1. 从请求中提取客户端提供的 API Key 。
+@@ -15,22 +18,79 @@
     2. 根据类型，与项目配置的密钥进行比对。
     3. 如果 Key 无效、缺失或不匹配，则抛出 HTTPException。
     """

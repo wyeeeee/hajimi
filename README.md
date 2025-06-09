@@ -18,7 +18,7 @@
 
 - [错误自查](./wiki/error.md)
 ###  使用文档
-- [huggingface 部署的使用文档（复活？！）（推荐，免费，手机电脑均可使用）](./wiki/huggingface.md)
+- [huggingface 部署的使用文档（复活？！）（推荐，免费，手机电脑均可使用）](./wiki/huggingface2.md)
 
 - [Claw Cloud部署的使用文档（推荐，免费，手机电脑均可使用）](./wiki/claw.md) 感谢[@IDeposit](https://github.com/IDeposit)编写
 - [看不到的看这里](https://blog.rzline.eu.org/2025/04/29/Claw%20Cloud%E9%83%A8%E7%BD%B2Gemini%E8%BD%AE%E8%AF%A2%E9%A1%B9%E7%9B%AEHajimi)
@@ -32,21 +32,10 @@
 - [vertex模式的使用文档](./wiki/vertex.md)
 
 ###  更新日志
-* v0.2.8
-   * 修复vertex模式下0325exp无法使用的问题
-   
-* v0.2.7
-   * 支持前端配置热更新vertex json
-   * 支持前端配置vertex快速模式key
-   
-* v0.2.6
-   * 为ai studio新增gemini原生接口支持，接口格式为/gemini
-   * 优化了负载均衡策略
-   * 修改了前端样式与配置逻辑，为前端配置选项新增`空响应重试次数`配置
-   * 新增windows一键安装脚本
-   * 解决 500/503 失败不重试问题
-   * 修复若干bug，提高系统稳定性
-
+* v0.3.5
+   * 修改vertex模式拉取模型链接，为新模型做准备
+* v0.3.4
+   * 修复持久化问题
 * 历史版本更新日志请查看[update](./update.md)
 
 ## ✨ 主要功能：

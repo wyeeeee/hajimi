@@ -11,7 +11,7 @@
 5. 在选择角色中，如图所示，在vetrex ai中找到Vertex Al Administrator，然后点击完成![screate](./img/vertex/admin.png)
 6. 找到刚刚创建的账号，在左侧点开菜单栏，选择秘钥管理![screate](./img/vertex/main.png)
 7. 点击添加键-创建新秘钥-json格式，创建成功后会自动下载json格式的秘钥
-
+8. 在上方搜索vertex api，点击进入并选择启用vertex api
 ## 2. 在hajimi中使用
 - 参照huggingface教程，在hajimi中新建环境变量`ENABLE_VERTEX`，并将value设置为true
 - 在hajimi中新建变量`GOOGLE_CREDENTIALS_JSON`，将value值设置为你刚刚下载的json的内容
