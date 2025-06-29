@@ -4,7 +4,8 @@
 
 ## Gemini主流白嫖平台
 - AI studio（Google账号注册）
-  - 目前免费：仅flash模型
+  - ~~目前免费：仅flash模型~~
+  - 喜报：Google恢复了免费key的2.5pro访问权限(rpd100,rpm5,tpm250k,tpd6M)
 - vertex AI（绑卡）
   - 目前免费：仅0325pro-exp（每分钟上下文131k）
 - vertex AI express（快速模式，无需绑卡，点击领取，有些人能领有些人不能）
@@ -31,7 +32,7 @@
 
 ## 0.1 Fork本项目
 - 点击链接：[https://github.com/wyeeeee/hajimi/fork]
-- 填写`Repository name`
+- 注意：现在Huggingface在封禁hajimi镜像，所以在fork仓库时不要使用hajimi原名，随便写点其他东西来填写`Repository name`
 - 点击底部绿色按钮`Create fork`完成Fork操作
 
 ## 0.2 构建镜像
@@ -40,7 +41,7 @@
 - 在左侧侧边栏点击`GHCR CI`
 - 点击右侧的`Run workflow`按钮
 - 直接点击弹出的`Run workflow`开始构建镜像（需要等待一些时间）
-- ⚠️镜像地址为：ghcr.io/你的github用户名/hajimi:latest
+- ⚠️镜像地址为：ghcr.io/你的github用户名/你填写的仓库名:latest
   - 例如：ghcr.io/wyeeeee/hajimi:latest。
   - 记住这个镜像等下要在huggingface中填写
 
@@ -72,13 +73,13 @@
   - 在“Name your file”输入框填写：**！！只能填写`Dockerfile`这几个字！！**
   - 在"Edit"中粘贴以下内容
 ```
-FROM ghcr.io/这里填你的github用户名/hajimi:latest
+FROM ghcr.io/这里填你的github用户名/你的git仓库名:latest
 
 EXPOSE 7860
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
 ```
-*注意：“ghcr.io/这里填你的github用户名/hajimi:latest”就是之前说的你的镜像，如果github用户名有大写是不识别的，改为小写*
+*注意：“ghcr.io/这里填你的github用户名/你的git仓库名:latest”就是之前说的你的镜像，如果github用户名有大写是不识别的，改为小写*
 
 - 全部填写完毕其他位置不用动，直接点击最底部`Commit new file to main`，完成部署
 
@@ -102,6 +103,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
 - 你在很多地方都可以看见本项目的前端界面：
   - 比如点击顶端栏的`App`，或者从个人信息进入点击空间卡默认就是项目的前端
 - 以防你看不懂或者找不到，前端链接`https://huggingface.co/spaces/你的huggingface用户名/你的huggingface空间名`
+- 抱脸公开面板url是`https://{username}-{spacename}.hf.space`别搞混了，这个是填酒馆和直接在浏览器打开的url，上面的是Huggingface里的
 
 # vertex模式通用教程
 （⬇️⬇️⬇️以下内容在项目前端页面操作）

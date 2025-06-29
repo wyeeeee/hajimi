@@ -720,9 +720,6 @@ def start_api_key_test_in_thread(keys):
         settings.GEMINI_API_KEYS = ','.join(valid_keys)
         settings.INVALID_API_KEYS = ','.join(invalid_keys)
         
-        # 更新最大重试次数
-        settings.MAX_RETRY_NUM = len(valid_keys)
-        
         # 保存设置
         save_settings()
         
