@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Hajimi Documentation",
   "scripts": {
-    "docs:dev": "vuepress dev docs",
-    "docs:build": "vuepress build docs"
+    "docs:dev": "vuepress dev .",
+    "docs:build": "vuepress build ."
   },
   "keywords": [
     "hajimi",

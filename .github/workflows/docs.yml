@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
-          cache-dependency-path: 'docs/package-lock.json'
+          cache-dependency-path: 'docs/package.json'
 
       - name: 设置 Pages
         uses: actions/configure-pages@v4
@@ -39,7 +39,7 @@ jobs:
       - name: 安装依赖
         run: |
           cd docs
-          npm ci
+          npm install
 
       - name: 构建文档
         run: |
