@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { useBackendStore } from './backend'
 
 export const useDashboardStore = defineStore('dashboard', () => {
   // 状态
@@ -70,16 +71,17 @@ export const useDashboardStore = defineStore('dashboard', () => {
   async function fetchDashboardData() {
     if (isRefreshing.value) return // 防止重复请求
     
+    const backendStore = useBackendStore()
+    
     isRefreshing.value = true
     try {
-      const response = await fetch('/api/dashboard-data')
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+      const response = await backendStore.apiRequest('api/dashboard-data')
       const data = await response.json()
       updateDashboardData(data)
     } catch (error) {
       console.error('获取数据失败:', error)
+      // 如果是网络错误，可以显示错误状态
+      throw error
     } finally {
       isRefreshing.value = false
     }
@@ -195,26 +197,20 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   // 更新配置项
   async function updateConfig(key, value, password) {
+    const backendStore = useBackendStore()
+    
     try {
       // 将驼峰命名转换为下划线命名
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
       
-      const response = await fetch('/api/update-config', {
+      const response = await backendStore.apiRequest('api/update-config', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           key: snakeCaseKey,
           value,
           password
         })
       })
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || '更新配置失败')
-      }
       
       const data = await response.json()
       return data

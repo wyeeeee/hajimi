@@ -1,11 +1,16 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import StatusSection from '../components/dashboard/StatusSection.vue'
 import ConfigSection from '../components/dashboard/ConfigSection.vue'
 import LogSection from '../components/dashboard/LogSection.vue'
+import BackendSwitcher from '../components/backend/BackendSwitcher.vue'
 import { useDashboardStore } from '../stores/dashboard'
+import { useBackendStore } from '../stores/backend'
 
 const dashboardStore = useDashboardStore()
+const backendStore = useBackendStore()
+const router = useRouter()
 const refreshInterval = ref(null)
 const isPageLoaded = ref(false)
 const animationStep = ref(0)
@@ -68,12 +73,22 @@ function stopAutoRefresh() {
 
 // 获取仪表盘数据
 async function fetchDashboardData() {
-  await dashboardStore.fetchDashboardData()
+  try {
+    await dashboardStore.fetchDashboardData()
+  } catch (error) {
+    console.error('获取仪表盘数据失败:', error)
+    // 可以显示错误提示
+  }
 }
 
 // 手动刷新
 function handleRefresh() {
   fetchDashboardData()
+}
+
+// 打开后端管理页面
+function openBackendManager() {
+  router.push('/backends')
 }
 
 // 切换夜间模式
@@ -119,9 +134,17 @@ async function verifyAndToggleVertex() {
 
 <template>
   <div class="dashboard" :class="{ 'page-loaded': isPageLoaded }">
+    <!-- 后端切换器 -->
+    <div class="backend-switcher-container" :class="{ 'animate-in': animationStep >= 0 || animationCompleted }">
+      <BackendSwitcher @openManager="openBackendManager" />
+    </div>
+    
     <div class="header-container" :class="{ 'animate-in': animationStep >= 1 || animationCompleted }">
       <div class="title-container">
         <h1><span>🤖 Gemini API 代理服务</span></h1>
+        <div class="backend-indicator">
+          <span class="current-backend">{{ backendStore.activeBackend?.name || '未连接' }}</span>
+        </div>
       </div>
       <div class="toggle-container">
         <button class="vertex-button" :class="{ 'active': config.enableVertex }" @click="openPasswordDialog">
@@ -196,6 +219,22 @@ body {
   transform: translateY(0);
 }
 
+/* 后端切换器容器 */
+.backend-switcher-container {
+  position: sticky;
+  top: 20px;
+  z-index: 100;
+  margin-bottom: 20px;
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.backend-switcher-container.animate-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .header-container {
   display: flex;
   justify-content: space-between;
@@ -241,11 +280,28 @@ body {
 
 .title-container {
   display: flex;
-  align-items: center;
-  gap: 15px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
   flex-wrap: wrap;
   position: relative;
   z-index: 1;
+}
+
+.backend-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.current-backend {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(5px);
 }
 
 .toggle-container {
