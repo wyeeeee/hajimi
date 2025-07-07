@@ -1,0 +1,88 @@
+// 自定义样式
+.home .hero
+  background linear-gradient(135deg, #667eea 0%, #764ba2 100%)
+  color white
+  
+  .hero-title, .description
+    color white !important
+    text-shadow 0 2px 4px rgba(0, 0, 0, 0.3)
+
+.home .features
+  border-top none
+  padding-top 2rem
+
+.feature h2
+  font-size 1.4rem
+  color #2c3e50
+  border-bottom none
+
+.custom-block.tip
+  border-left 4px solid #667eea
+  background-color #f8f9ff
+
+.custom-block.warning
+  border-left 4px solid #ff9500
+  background-color #fff8f0
+
+.custom-block.danger
+  border-left 4px solid #e74c3c
+  background-color #fdf2f2
+
+// 代码块样式优化
+div[class*="language-"]
+  border-radius 8px
+  overflow hidden
+
+div[class*="language-"]:before
+  background #667eea
+  color white
+  font-weight bold
+
+// 导航栏样式
+.navbar
+  background linear-gradient(135deg, #667eea 0%, #764ba2 100%)
+  border-bottom none
+  box-shadow 0 2px 8px rgba(0, 0, 0, 0.1)
+
+.navbar .site-name
+  color white !important
+  font-weight bold
+
+.navbar .nav-links a
+  color rgba(255, 255, 255, 0.9) !important
+  
+.navbar .nav-links a:hover
+  color white !important
+
+// 侧边栏样式
+.sidebar-group-items .sidebar-link.active
+  border-left-color #667eea
+  color #667eea
+
+// 按钮样式
+.action-button
+  background linear-gradient(135deg, #667eea 0%, #764ba2 100%)
+  border none
+  border-radius 25px
+  padding 0.8rem 2rem
+  font-weight bold
+  transition all 0.3s ease
+  
+.action-button:hover
+  transform translateY(-2px)
+  box-shadow 0 8px 25px rgba(102, 126, 234, 0.3)
+
+// 响应式优化
+@media (max-width: 719px)
+  .home .hero
+    padding 2rem 1.5rem
+    
+  .home .hero .hero-title
+    font-size 2rem
+    
+  .home .features
+    flex-direction column
+    
+  .feature
+    max-width 100%
+    margin-bottom 1rem
