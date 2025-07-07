@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hajimi - Gemini API 反向代理服务</title>
+    <meta name="description" content="高性能、多功能的 Gemini API 反向代理解决方案，支持多种部署方式">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f8f9fa;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        /* Navigation */
+        .nav {
+            background: white;
+            padding: 1rem 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            margin-bottom: 2rem;
+        }
+
+        .nav ul {
+            list-style: none;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 2rem;
+        }
+
+        .nav a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+        }
+
+        .nav a:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        /* Sections */
+        .section {
+            background: white;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 1.5rem;
+            font-size: 2rem;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+
+        .section h3 {
+            color: #34495e;
+            margin: 1.5rem 0 1rem;
+            font-size: 1.5rem;
+        }
+
+        .section h4 {
+            color: #2c3e50;
+            margin: 1rem 0 0.5rem;
+            font-size: 1.2rem;
+        }
+
+        /* Deploy methods grid */
+        .deploy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .deploy-card {
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        .deploy-card:hover {
+            border-color: #667eea;
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.15);
+        }
+
+        .deploy-card h4 {
+            color: #667eea;
+            margin-bottom: 0.5rem;
+            font-size: 1.3rem;
+        }
+
+        .deploy-card .difficulty {
+            display: inline-block;
+            padding: 0.2rem 0.8rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+        }
+
+        .easy { background: #d4edda; color: #155724; }
+        .medium { background: #fff3cd; color: #856404; }
+        .hard { background: #f8d7da; color: #721c24; }
+
+        .deploy-card ul {
+            margin: 1rem 0;
+            padding-left: 1.5rem;
+        }
+
+        .deploy-card li {
+            margin-bottom: 0.5rem;
+        }
+
+        /* Code blocks */
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+            position: relative;
+        }
+
+        .code-block::before {
+            content: attr(data-lang);
+            position: absolute;
+            top: 0.5rem;
+            right: 1rem;
+            font-size: 0.8rem;
+            color: #a0aec0;
+            text-transform: uppercase;
+        }
+
+        .code-block code {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        /* Features grid */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .feature {
+            text-align: center;
+            padding: 1.5rem;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .feature:hover {
+            border-color: #667eea;
+            transform: translateY(-3px);
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature h3 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+        }
+
+        /* Config table */
+        .config-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .config-table th,
+        .config-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .config-table th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        .config-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-block;
+            padding: 0.8rem 2rem;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-outline {
+            border: 2px solid #667eea;
+            color: #667eea;
+            background: transparent;
+        }
+
+        .btn-outline:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        /* Footer */
+        .footer {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 2rem 0;
+            margin-top: 3rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .nav ul {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .section {
+                padding: 1.5rem;
+            }
+
+            .deploy-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .features {
+                grid-template-columns: 1fr;
+            }
+
+            .config-table {
+                font-size: 0.9rem;
+            }
+
+            .config-table th,
+            .config-table td {
+                padding: 0.8rem 0.5rem;
+            }
+        }
+
+        /* Smooth scrolling */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* Highlight boxes */
+        .highlight {
+            background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%);
+            border-left: 4px solid #667eea;
+            padding: 1rem 1.5rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem 1.5rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 1rem 1.5rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <h1>🤖 Hajimi</h1>
+            <p>高性能 Gemini API 反向代理服务</p>
+        </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="container">
+            <ul>
+                <li><a href="#features">功能特性</a></li>
+                <li><a href="#quick-start">快速开始</a></li>
+                <li><a href="#deploy">部署方式</a></li>
+                <li><a href="#config">配置说明</a></li>
+                <li><a href="#usage">使用方法</a></li>
+                <li><a href="#troubleshooting">故障排除</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- Features Section -->
+        <section id="features" class="section">
+            <h2>✨ 功能特性</h2>
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">🚀</div>
+                    <h3>多平台部署</h3>
+                    <p>支持 Docker、云端、移动端等多种部署方式</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔒</div>
+                    <h3>安全可靠</h3>
+                    <p>内置访问控制、速率限制、白名单功能</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">⚡</div>
+                    <h3>高性能</h3>
+                    <p>支持并发请求和智能缓存机制</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🎨</div>
+                    <h3>易于使用</h3>
+                    <p>友好的 Web UI 和完整的 API 文档</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔄</div>
+                    <h3>流式传输</h3>
+                    <p>支持假流式传输，避免连接超时</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🌐</div>
+                    <h3>联网搜索</h3>
+                    <p>可选的联网搜索功能增强</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Start Section -->
+        <section id="quick-start" class="section">
+            <h2>🚀 5分钟快速开始</h2>
+            
+            <div class="highlight">
+                <h4>最简单的部署方式 - Docker</h4>
+                <p>推荐新手使用，一键启动，配置简单</p>
+            </div>
+
+            <h3>步骤 1: 下载配置文件</h3>
+            <div class="code-block" data-lang="bash">
+                <code># 创建项目目录
+mkdir hajimi && cd hajimi
+
+# 下载配置文件
+wget https://raw.githubusercontent.com/wyeeeee/hajimi/main/wiki/docker/.env
+wget https://raw.githubusercontent.com/wyeeeee/hajimi/main/wiki/docker/docker-compose.yaml</code>
+            </div>
+
+            <h3>步骤 2: 配置 API 密钥</h3>
+            <div class="code-block" data-lang="bash">
+                <code># 编辑配置文件
+nano .env
+
+# 修改以下配置：
+GEMINI_API_KEYS=your_api_key_here
+PASSWORD=your_password_here</code>
+            </div>
+
+            <div class="warning">
+                <strong>⚠️ 重要:</strong> 请到 <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a> 免费获取 Gemini API 密钥
+            </div>
+
+            <h3>步骤 3: 启动服务</h3>
+            <div class="code-block" data-lang="bash">
+                <code># 启动服务
+docker compose up -d
+
+# 查看运行状态
+docker compose logs -f</code>
+            </div>
+
+            <h3>步骤 4: 访问服务</h3>
+            <div class="success">
+                <strong>✅ 部署完成!</strong> 打开浏览器访问 <code>http://localhost:7860</code>
+            </div>
+        </section>
+
+        <!-- Deploy Methods Section -->
+        <section id="deploy" class="section">
+            <h2>🛠️ 部署方式对比</h2>
+            
+            <div class="deploy-grid">
+                <div class="deploy-card">
+                    <h4>🐳 Docker 部署</h4>
+                    <span class="difficulty easy">简单</span>
+                    <p>适合本地开发和服务器部署</p>
+                    <ul>
+                        <li>✅ 一键启动，配置简单</li>
+                        <li>✅ 跨平台支持</li>
+                        <li>✅ 自动更新</li>
+                        <li>✅ 推荐新手使用</li>
+                    </ul>
+                    <a href="#docker-guide" class="btn btn-primary">查看教程</a>
+                </div>
+
+                <div class="deploy-card">
+                    <h4>☁️ Hugging Face</h4>
+                    <span class="difficulty easy">简单</span>
+                    <p>完全免费的云端部署</p>
+                    <ul>
+                        <li>✅ 无需服务器</li>
+                        <li>✅ 完全免费</li>
+                        <li>✅ 稳定可靠</li>
+                        <li>⚠️ 需要构建镜像</li>
+                    </ul>
+                    <a href="#huggingface-guide" class="btn btn-primary">查看教程</a>
+                </div>
+
+                <div class="deploy-card">
+                    <h4>🔧 Claw Cloud</h4>
+                    <span class="difficulty medium">中等</span>
+                    <p>每月 10GB 免费流量</p>
+                    <ul>
+                        <li>✅ GitHub 登录</li>
+                        <li>✅ 配置相对简单</li>
+                        <li>⚠️ 有流量限制</li>
+                        <li>⚠️ 部分地区较慢</li>
+                    </ul>
+                    <a href="#claw-guide" class="btn btn-outline">查看教程</a>
+                </div>
+
+                <div class="deploy-card">
+                    <h4>⚡ Zeabur</h4>
+                    <span class="difficulty easy">简单</span>
+                    <p>一键部署平台</p>
+                    <ul>
+                        <li>✅ 操作简单</li>
+                        <li>✅ 自动扩容</li>
+                        <li>✅ 支持域名</li>
+                        <li>⚠️ 有使用限制</li>
+                    </ul>
+                    <a href="#zeabur-guide" class="btn btn-outline">查看教程</a>
+                </div>
+
+                <div class="deploy-card">
+                    <h4>📱 Termux</h4>
+                    <span class="difficulty hard">困难</span>
+                    <p>Android 设备部署</p>
+                    <ul>
+                        <li>✅ 本地运行</li>
+                        <li>✅ 完全免费</li>
+                        <li>⚠️ 配置复杂</li>
+                        <li>⚠️ 性能有限</li>
+                    </ul>
+                    <a href="#termux-guide" class="btn btn-outline">查看教程</a>
+                </div>
+
+                <div class="deploy-card">
+                    <h4>🤖 Vertex AI</h4>
+                    <span class="difficulty hard">困难</span>
+                    <p>企业级 AI 服务</p>
+                    <ul>
+                        <li>✅ 更高配额</li>
+                        <li>✅ 企业级稳定</li>
+                        <li>⚠️ 需要付费验证</li>
+                        <li>⚠️ 配置复杂</li>
+                    </ul>
+                    <a href="#vertex-guide" class="btn btn-outline">查看教程</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Config Section -->
+        <section id="config" class="section">
+            <h2>⚙️ 配置说明</h2>
+            
+            <h3>必需配置</h3>
+            <table class="config-table">
+                <thead>
+                    <tr>
+                        <th>环境变量</th>
+                        <th>说明</th>
+                        <th>示例</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>GEMINI_API_KEYS</code></td>
+                        <td>Gemini API 密钥，多个用逗号分隔</td>
+                        <td><code>key1,key2,key3</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>PASSWORD</code></td>
+                        <td>访问密码</td>
+                        <td><code>your_secure_password</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>常用可选配置</h3>
+            <table class="config-table">
+                <thead>
+                    <tr>
+                        <th>环境变量</th>
+                        <th>说明</th>
+                        <th>默认值</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>MAX_REQUESTS_PER_MINUTE</code></td>
+                        <td>每分钟最大请求数</td>
+                        <td>30</td>
+                    </tr>
+                    <tr>
+                        <td><code>MAX_REQUESTS_PER_DAY_PER_IP</code></td>
+                        <td>每IP每日请求限制</td>
+                        <td>600</td>
+                    </tr>
+                    <tr>
+                        <td><code>FAKE_STREAMING</code></td>
+                        <td>假流式传输（避免超时）</td>
+                        <td>true</td>
+                    </tr>
+                    <tr>
+                        <td><code>RANDOM_STRING</code></td>
+                        <td>随机字符串伪装</td>
+                        <td>true</td>
+                    </tr>
+                    <tr>
+                        <td><code>SEARCH_MODE</code></td>
+                        <td>联网搜索模式</td>
+                        <td>false</td>
+                    </tr>
+                    <tr>
+                        <td><code>CONCURRENT_REQUESTS</code></td>
+                        <td>默认并发数</td>
+                        <td>1</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Usage Section -->
+        <section id="usage" class="section">
+            <h2>📖 使用方法</h2>
+            
+            <h3>Web 管理界面</h3>
+            <p>部署完成后，访问您的服务地址进入管理界面：</p>
+            <div class="code-block" data-lang="url">
+                <code>http://your-domain:7860</code>
+            </div>
+            <p>使用配置的密码登录，可以查看统计数据、修改配置、监控使用情况。</p>
+
+            <h3>API 调用</h3>
+            <p>Hajimi 提供兼容 OpenAI 格式的 API：</p>
+            <div class="code-block" data-lang="bash">
+                <code>curl -X POST http://your-domain:7860/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_password" \
+  -d '{
+    "model": "gemini-pro",
+    "messages": [
+      {"role": "user", "content": "你好，Hajimi！"}
+    ]
+  }'</code>
+            </div>
+
+            <h3>SillyTavern 配置</h3>
+            <div class="highlight">
+                <h4>在酒馆中使用 Hajimi</h4>
+                <ul>
+                    <li><strong>API 类型</strong>: 聊天补全</li>
+                    <li><strong>来源</strong>: 自定义（兼容 OpenAI）</li>
+                    <li><strong>基础 URL</strong>: <code>http://your-domain:7860/v1</code></li>
+                    <li><strong>API 密钥</strong>: 您的访问密码</li>
+                    <li><strong>流式传输</strong>: 建议开启</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Troubleshooting Section -->
+        <section id="troubleshooting" class="section">
+            <h2>🆘 常见问题</h2>
+            
+            <h3>🔴 429 错误（Too Many Requests）</h3>
+            <div class="warning">
+                <strong>原因：</strong>请求频率过高或触发了 Google 的审查机制
+                <br><strong>解决：</strong>
+                <ul>
+                    <li>增加 API 密钥数量分散负载</li>
+                    <li>调整请求内容避免敏感词汇</li>
+                    <li>降低请求频率</li>
+                </ul>
+            </div>
+
+            <h3>🔴 500/502 错误</h3>
+            <div class="warning">
+                <strong>原因：</strong>服务器错误或网络问题
+                <br><strong>解决：</strong>
+                <ul>
+                    <li>检查 API 密钥是否有效</li>
+                    <li>验证网络连接是否正常</li>
+                    <li>重启服务</li>
+                </ul>
+            </div>
+
+            <h3>🔴 连接超时</h3>
+            <div class="warning">
+                <strong>原因：</strong>客户端连接超时
+                <br><strong>解决：</strong>
+                <ul>
+                    <li>启用假流式传输：<code>FAKE_STREAMING=true</code></li>
+                    <li>在客户端开启流式传输</li>
+                    <li>增加客户端超时时间</li>
+                </ul>
+            </div>
+
+            <h3>🔴 无法访问服务</h3>
+            <div class="warning">
+                <strong>解决步骤：</strong>
+                <ol>
+                    <li>检查服务是否正常运行</li>
+                    <li>确认端口是否正确开放</li>
+                    <li>验证防火墙设置</li>
+                    <li>检查域名解析（如果使用域名）</li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- Detailed Guides -->
+        <section id="docker-guide" class="section">
+            <h2>🐳 Docker 详细部署教程</h2>
+            
+            <h3>1. 安装 Docker</h3>
+            <p>根据您的操作系统安装 Docker：</p>
+            <ul>
+                <li><strong>Windows/Mac</strong>: 下载 <a href="https://www.docker.com/get-started" target="_blank">Docker Desktop</a></li>
+                <li><strong>Linux</strong>: 使用包管理器安装 docker 和 docker-compose</li>
+            </ul>
+
+            <h3>2. 下载配置文件</h3>
+            <div class="code-block" data-lang="bash">
+                <code># 创建目录
+mkdir hajimi-app && cd hajimi-app
+
+# 下载配置文件
+curl -o .env https://raw.githubusercontent.com/wyeeeee/hajimi/main/wiki/docker/.env
+curl -o docker-compose.yaml https://raw.githubusercontent.com/wyeeeee/hajimi/main/wiki/docker/docker-compose.yaml</code>
+            </div>
+
+            <h3>3. 编辑配置</h3>
+            <div class="code-block" data-lang="bash">
+                <code># 编辑 .env 文件
+nano .env
+
+# 必需修改的配置：
+GEMINI_API_KEYS=your_api_key1,your_api_key2
+PASSWORD=your_secure_password
+
+# 可选配置：
+MAX_REQUESTS_PER_MINUTE=30
+FAKE_STREAMING=true</code>
+            </div>
+
+            <h3>4. 启动服务</h3>
+            <div class="code-block" data-lang="bash">
+                <code># 启动服务（后台运行）
+docker compose up -d
+
+# 查看运行状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f hajimi-app</code>
+            </div>
+
+            <h3>5. 访问和测试</h3>
+            <div class="success">
+                <strong>✅ 成功！</strong> 服务已启动，访问 <code>http://localhost:7860</code>
+            </div>
+
+            <h3>6. 维护操作</h3>
+            <div class="code-block" data-lang="bash">
+                <code># 停止服务
+docker compose down
+
+# 更新到最新版本
+docker compose pull
+docker compose up -d
+
+# 查看资源使用
+docker stats hajimi-app</code>
+            </div>
+        </section>
+
+        <section id="huggingface-guide" class="section">
+            <h2>☁️ Hugging Face Spaces 部署教程</h2>
+            
+            <h3>1. Fork 项目并构建镜像</h3>
+            <ol>
+                <li>访问 <a href="https://github.com/wyeeeee/hajimi" target="_blank">GitHub 仓库</a>，点击 Fork</li>
+                <li>在您的仓库中，进入 Actions 页面</li>
+                <li>启用 workflows，运行 "GHCR CI" 构建镜像</li>
+                <li>等待构建完成，记住镜像地址：<code>ghcr.io/your-username/hajimi:latest</code></li>
+            </ol>
+
+            <h3>2. 创建 Hugging Face Space</h3>
+            <ol>
+                <li>注册并登录 <a href="https://huggingface.co" target="_blank">Hugging Face</a></li>
+                <li>访问 <a href="https://huggingface.co/spaces" target="_blank">Spaces</a>，点击 "New Space"</li>
+                <li>选择 Docker 作为 SDK</li>
+                <li>填写 Space 名称（注意：不要使用特殊符号）</li>
+            </ol>
+
+            <h3>3. 配置 Dockerfile</h3>
+            <div class="code-block" data-lang="dockerfile">
+                <code>FROM ghcr.io/your-username/hajimi:latest</code>
+            </div>
+
+            <h3>4. 配置环境变量</h3>
+            <p>在 Space 的 Settings → Variables and secrets 中添加：</p>
+            <div class="code-block" data-lang="bash">
+                <code># 必需配置
+HUGGINGFACE=true
+GEMINI_API_KEYS=your_api_key1,your_api_key2
+PASSWORD=your_password
+
+# 可选配置
+MAX_REQUESTS_PER_MINUTE=30
+FAKE_STREAMING=true</code>
+            </div>
+
+            <div class="warning">
+                <strong>⚠️ 重要：</strong> 使用 "Secrets" 而不是 "Variables" 来保护敏感信息
+            </div>
+
+            <h3>5. 获取 Hugging Face Token</h3>
+            <ol>
+                <li>访问 <a href="https://huggingface.co/settings/tokens" target="_blank">Token 设置</a></li>
+                <li>创建新 Token（只需要默认权限）</li>
+                <li>保存 Token，格式如：<code>hf_xxxxxxxxxxxx</code></li>
+            </ol>
+
+            <h3>6. 在客户端中使用</h3>
+            <ul>
+                <li><strong>访问地址</strong>: <code>https://your-username-spacename.hf.space/v1</code></li>
+                <li><strong>API 密钥</strong>: 您的 Hugging Face Token</li>
+            </ul>
+        </section>
+
+        <!-- Links Section -->
+        <section class="section">
+            <h2>🔗 相关链接</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                <a href="https://github.com/wyeeeee/hajimi" target="_blank" class="btn btn-primary">GitHub 仓库</a>
+                <a href="https://github.com/wyeeeee/hajimi/issues" target="_blank" class="btn btn-outline">问题反馈</a>
+                <a href="https://makersuite.google.com/app/apikey" target="_blank" class="btn btn-outline">获取 API 密钥</a>
+                <a href="https://huggingface.co/spaces" target="_blank" class="btn btn-outline">Hugging Face</a>
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Hajimi. MIT License. Made with ❤️ for the community.</p>
+            <p>⭐ 如果觉得有用，请给个 Star！</p>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Add loading animation for external links
+        document.querySelectorAll('a[target="_blank"]').forEach(link => {
+            link.addEventListener('click', function() {
+                this.style.opacity = '0.7';
+                setTimeout(() => {
+                    this.style.opacity = '1';
+                }, 300);
+            });
+        });
+    </script>
+</body>
+</html>
