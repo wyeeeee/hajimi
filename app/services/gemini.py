@@ -1,9 +1,8 @@
 import json
 import os
-import httpx 
 from app.models.schemas import ChatCompletionRequest
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 import httpx
 import secrets
 import string
@@ -54,7 +53,7 @@ class GeminiResponseWrapper:
         except (KeyError, IndexError):
             return ""
 
-    def _extract_function_call(self) -> Optional[Dict[str, Any]]:
+    def _extract_function_call(self) -> Optional[List[Dict[str, Any]]]:
         try:
             parts = self._data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
             # 使用列表推导式查找所有包含 'functionCall' 的 part，并提取其值
@@ -132,7 +131,7 @@ class GeminiResponseWrapper:
         return self._model
 
     @property
-    def function_call(self) -> Optional[Dict[str, Any]]:
+    def function_call(self) -> Optional[List[Dict[str, Any]]]:
         return self._function_call
 
 
@@ -252,13 +251,14 @@ class GeminiClient:
             
             # 如果成功解析出有效的 mode，构建 tool_config
             if mode:
-                config = {"mode": mode}
+                config: Dict[str, Union[str, List[str]]] = {"mode": mode}
                 if allowed_functions:
                     config["allowed_function_names"] = allowed_functions
                 tool_config = {"function_calling_config": config}
         
         # 3. 添加 tool_config 到 data
-        if tool_config and data.get("tools"):
+
+        if tool_config and function_declarations:
             data["tool_config"] = tool_config
 
         if system_instruction:
@@ -283,9 +283,13 @@ class GeminiClient:
         
         async with httpx.AsyncClient() as client:
             async with client.stream("POST", url, headers=headers, json=data, timeout=600) as response:
-                response.raise_for_status()
-                buffer = b"" # 用于累积可能不完整的 JSON 数据
                 try:
+                    # 检查响应状态码，如果不是成功，则先消费响应体再抛出异常
+                    if response.status_code != 200:
+                        await response.aread()
+                        response.raise_for_status()
+                        
+                    buffer = b"" # 用于累积可能不完整的 JSON 数据
                     async for line in response.aiter_lines():
                         if not line.strip(): # 跳过空行 (SSE 消息分隔符)
                             continue
@@ -294,24 +298,24 @@ class GeminiClient:
                         
                         # 检查是否是结束标志，如果是，结束循环
                         if line == "[DONE]":
-                            break 
+                            break
                         
                         buffer += line.encode('utf-8')
                         try:
                             # 尝试解析整个缓冲区
                             data = json.loads(buffer.decode('utf-8'))
                             # 解析成功，清空缓冲区
-                            buffer = b"" 
+                            buffer = b""
                             yield GeminiResponseWrapper(data)
 
                         except json.JSONDecodeError:
                             # JSON 不完整，继续累积到 buffer
-                            continue 
-                        except Exception as e:
-                            log('ERROR', f"流式处理期间发生错误", 
-                                extra={'key': self.api_key[:8], 'request_type': 'stream', 'model': request.model})
-                            raise e
+                            continue
+                        
                 except Exception as e:
+                    # 在重新抛出异常之前，确保响应体被完全读取
+                    if not response.is_closed:
+                        await response.aread()
                     raise e
                 finally:
                     log('info', "流式请求结束")

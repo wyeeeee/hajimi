@@ -17,20 +17,27 @@
 遇到问题请先查看以下的 **错误自查** 文档，确保已尝试按照其上的指示进行了相应的排查与处理。
 
 - [错误自查](./wiki/error.md)
+
 ###  使用文档
-- [huggingface 部署的使用文档（复活？！）（推荐，免费，手机电脑均可使用）](./wiki/huggingface2.md)
 
-- [Claw Cloud部署的使用文档（推荐，免费，手机电脑均可使用）](./wiki/claw.md) 感谢[@IDeposit](https://github.com/IDeposit)编写
+- [Claw Cloud部署的使用文档（免费，手机电脑均可使用）](./wiki/claw.md) 感谢[@IDeposit](https://github.com/IDeposit)编写
 
-- [termux部署的使用文档（手机使用）](./wiki/Termux.md) 感谢[@天命不又](https://github.com/tmby)编写
+- [huggingface 部署的使用文档（免费，手机电脑均可使用）](./wiki/huggingface2.md)
+
+- [termux部署的使用文档（手机使用）](./wiki/Termux.md) 感谢 [@天命不又](https://github.com/tmby) 编写
+
+- [Render 部署的使用文档 (免费，手机电脑均可使用，但可能需要绑信用卡)](./wiki/render.md) 感谢 [@LSR](https://github.com/lesser0) 编写
 
 - [windows 本地部署的使用文档](./wiki/windows.md)
 
-- ~~[zeabur部署的使用文档(需付费)](./wiki/zeabur.md) 感谢**墨舞ink**编写~~（已过时且暂时无人更新，欢迎提交pull requests）
-
 - [vertex模式的使用文档](./wiki/vertex.md)
 
+- ~~[zeabur部署的使用文档(需付费)](./wiki/zeabur.md) 感谢**墨舞ink**编写~~（已过时且暂时无人更新，欢迎提交pull requests）
+
 ###  更新日志
+* v1.0.2
+   * 修复 400 错误
+
 * v1.0.1
    * 新增`清除失效密钥`功能
    * 新增`输出有效秘钥`功能
