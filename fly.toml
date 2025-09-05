@@ -4,7 +4,7 @@
 #
 
 app = 'myhaji'
-primary_region = 'hkg'
+primary_region = 'nrt'
 
 [build]
 
@@ -13,7 +13,7 @@ primary_region = 'hkg'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]
