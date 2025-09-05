@@ -1,0 +1,1 @@
+app = "myhaji" primary_region = "nrt" [http_service] auto_start_machines = true auto_stop_machines = true force_https = true internal_port = 7_860 min_machines_running = 1 processes = [ "app" ] [[vm]] cpu_kind = "shared" cpus = 1 memory = "1gb" memory_mb = 256
