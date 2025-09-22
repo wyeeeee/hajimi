@@ -79,6 +79,13 @@ search = {
 RANDOM_STRING = os.environ.get("RANDOM_STRING", "true").lower() in ["true", "1", "yes"]
 RANDOM_STRING_LENGTH = int(os.environ.get("RANDOM_STRING_LENGTH", "5"))
 
+# 是否全局启用思考过程
+ENABLE_THINKING = os.environ.get("ENABLE_THINKING", "true").lower() in [
+    "true",
+    "1",
+    "yes",
+]
+
 # 空响应重试次数限制
 MAX_EMPTY_RESPONSES = int(
     os.environ.get("MAX_EMPTY_RESPONSES", "5")

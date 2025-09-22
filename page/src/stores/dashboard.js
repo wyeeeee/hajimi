@@ -4,14 +4,17 @@ import { useBackendStore } from './backend'
 
 export const useDashboardStore = defineStore('dashboard', () => {
   // 状态
-  const status = ref({
-    keyCount: 0,
-    modelCount: 0,
-    retryCount: 0,
-    last24hCalls: 0,
-    hourlyCalls: 0,
-    minuteCalls: 0
-  })
+    const status = ref({
+      keyCount: 0,
+      modelCount: 0,
+      retryCount: 0,
+      last24hCalls: 0,
+      hourlyCalls: 0,
+      minuteCalls: 0,
+      last24hTokens: 0,
+      hourlyTokens: 0,
+      minuteTokens: 0
+    })
 
   // 添加图表相关的时间序列数据
   const timeSeriesData = ref({
@@ -97,6 +100,9 @@ export const useDashboardStore = defineStore('dashboard', () => {
       last24hCalls: data.last_24h_calls || 0,
       hourlyCalls: data.hourly_calls || 0,
       minuteCalls: data.minute_calls || 0,
+      last24hTokens: data.last_24h_tokens || 0,
+      hourlyTokens: data.hourly_tokens || 0,
+      minuteTokens: data.minute_tokens || 0,
       enableVertex: data.enable_vertex || false
     }
 

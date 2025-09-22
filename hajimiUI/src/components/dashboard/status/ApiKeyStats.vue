@@ -89,8 +89,8 @@ async function submitApiKeys() {
     return
   }
   
-  // 验证API密钥格式
-  const keys = newApiKeys.value.split(',').map(key => key.trim()).filter(key => key)
+  // 验证API密钥格式 - 支持换行和逗号分隔
+  const keys = newApiKeys.value.split(/[,\n\r]+/).map(key => key.trim()).filter(key => key)
   if (keys.length === 0) {
     apiKeyError.value = '请输入至少一个有效的API密钥'
     return
@@ -740,6 +740,22 @@ const totalTokens = computed(() => {
       <div class="stat-card">
         <div class="stat-value">{{ dashboardStore.status.minuteCalls }}</div>
         <div class="stat-label">分钟调用次数</div>
+      </div>
+    </div>
+    
+    <!-- Token消耗统计 -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">{{ dashboardStore.status.last24hTokens.toLocaleString() }}</div>
+        <div class="stat-label">24小时Token消耗</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ dashboardStore.status.hourlyTokens.toLocaleString() }}</div>
+        <div class="stat-label">小时Token消耗</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ dashboardStore.status.minuteTokens.toLocaleString() }}</div>
+        <div class="stat-label">分钟Token消耗</div>
       </div>
     </div>
     

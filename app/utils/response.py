@@ -3,7 +3,12 @@ import time
 
 
 def openAI_from_text(
-    model="gemini", content=None, finish_reason=None, total_token_count=0, stream=True
+    model="gemini",
+    content=None,
+    finish_reason=None,
+    total_token_count=0,
+    stream=True,
+    role="assistant",
 ):
     """
     根据传入参数，创建 OpenAI 标准响应对象块
@@ -19,7 +24,7 @@ def openAI_from_text(
     }
 
     if content:
-        content_chunk = {"role": "assistant", "content": content}
+        content_chunk = {"role": role, "content": content}
 
     if finish_reason:
         formatted_chunk["usage"] = {"total_tokens": total_token_count}
@@ -111,10 +116,11 @@ def openAI_from_Gemini(response, stream=True):
             "content": None,  # 函数调用时 content 为 null
             "tool_calls": tool_calls,
         }
-    elif response.text:
-        # 处理普通文本响应
+    elif response.text or response.thoughts:
         content_chunk = {"role": "assistant", "content": response.text}
-
+        if response.thoughts:
+            content_chunk["reasoning_content"] = response.thoughts
+    
     if stream:
         formatted_chunk["choices"][0]["delta"] = content_chunk
         formatted_chunk["object"] = "chat.completion.chunk"

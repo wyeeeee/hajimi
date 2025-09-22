@@ -79,7 +79,11 @@ vertex_log(
 
 def update_env_var(name, value):
     """Update environment variable in memory."""
-    os.environ[name] = value
+    # 确保环境变量值为字符串类型
+    if isinstance(value, bool):
+        os.environ[name] = str(value).lower()
+    else:
+        os.environ[name] = str(value)
     vertex_log("info", f"Updated environment variable: {name}")
 
 
@@ -159,8 +163,6 @@ def update_config(name, value):
         global FAKE_STREAMING_ENABLED
         FAKE_STREAMING_ENABLED = value
         vertex_log("info", f"Updated FAKE_STREAMING to {value}")
-        # 确保环境变量也被更新
-        os.environ["FAKE_STREAMING"] = str(value).lower()
     elif name == "FAKE_STREAMING_INTERVAL":
         # 更新FAKE_STREAMING_INTERVAL配置
         settings.FAKE_STREAMING_INTERVAL = value

@@ -208,6 +208,39 @@ class ApiStatsManager:
                 if ts >= minute_ago_ts
             )
 
+    def get_tokens_last_24h(self):
+        """获取过去24小时的总Token消耗量"""
+        with self._counters_lock:
+            return sum(self.api_key_tokens.values())
+
+    def get_tokens_last_hour(self, now=None):
+        """获取过去一小时的总Token消耗量"""
+        if now is None:
+            now = datetime.now()
+        
+        hour_ago_ts = self._get_minute_timestamp(now - timedelta(hours=1))
+        
+        with self._time_series_lock:
+            return sum(
+                data["tokens"]
+                for ts, data in self.time_buckets.items()
+                if ts >= hour_ago_ts
+            )
+
+    def get_tokens_last_minute(self, now=None):
+        """获取过去一分钟的总Token消耗量"""
+        if now is None:
+            now = datetime.now()
+        
+        minute_ago_ts = self._get_minute_timestamp(now - timedelta(minutes=1))
+        
+        with self._time_series_lock:
+            return sum(
+                data["tokens"]
+                for ts, data in self.time_buckets.items()
+                if ts >= minute_ago_ts
+            )
+
     def get_time_series_data(self, minutes=30, now=None):
         """获取过去N分钟的时间序列数据"""
         if now is None:

@@ -443,6 +443,7 @@ async def create_embedding(
     request: EmbeddingRequest,
     http_request: Request,
     _du=Depends(verify_user_agent),
+    _dp=Depends(custom_verify_password),
 ):
     await protect_from_abuse(
         http_request,
@@ -450,15 +451,13 @@ async def create_embedding(
         settings.MAX_REQUESTS_PER_DAY_PER_IP,
     )
 
-    api_key = http_request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not api_key:
-        assert key_manager is not None
-        api_key = await key_manager.get_available_key()
+    assert key_manager is not None
+    api_key = await key_manager.get_available_key()
 
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: Invalid token",
+            detail="Unauthorized: No available API keys",
         )
 
     client = EmbeddingClient(api_key)
@@ -473,19 +472,18 @@ async def create_embedding(
 async def vector_query(
     request: Request,
     _du=Depends(verify_user_agent),
+    _dp=Depends(custom_verify_password),
 ):
     log("INFO", f"Received vector query request with headers: {request.headers}")
     body = await request.json()
     search_text = body.get("searchText")
     model = body.get("model")
-    api_key = body.get("apiKey") or request.headers.get("Authorization", "").replace("Bearer ", "")
 
-    if not api_key:
-        assert key_manager is not None
-        api_key = await key_manager.get_available_key()
+    assert key_manager is not None
+    api_key = await key_manager.get_available_key()
 
     if not all([search_text, model, api_key]):
-        raise HTTPException(status_code=401, detail="Unauthorized: Invalid token")
+        raise HTTPException(status_code=401, detail="Unauthorized: Missing required parameters or no available API keys")
 
     client = EmbeddingClient(api_key)
     embedding_request = EmbeddingRequest(input=search_text, model=model)
@@ -512,19 +510,18 @@ async def vector_query(
 async def vector_insert(
     request: Request,
     _du=Depends(verify_user_agent),
+    _dp=Depends(custom_verify_password),
 ):
     log("INFO", f"Received vector insert request with headers: {request.headers}")
     body = await request.json()
     items = body.get("items", [])
     model = body.get("model")
-    api_key = body.get("apiKey") or request.headers.get("Authorization", "").replace("Bearer ", "")
 
-    if not api_key:
-        assert key_manager is not None
-        api_key = await key_manager.get_available_key()
+    assert key_manager is not None
+    api_key = await key_manager.get_available_key()
 
     if not all([items, model, api_key]):
-        raise HTTPException(status_code=401, detail="Unauthorized: Invalid token")
+        raise HTTPException(status_code=401, detail="Unauthorized: Missing required parameters or no available API keys")
 
     texts = [item.get("text") for item in items]
     client = EmbeddingClient(api_key)
